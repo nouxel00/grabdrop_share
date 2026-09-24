@@ -198,7 +198,7 @@ bien plus rapide (même principe que Huawei Share).
 
 - Chaque appareil diffuse une annonce de 18 octets : son adresse et son port
   Wi-Fi, et s'il **tient un objet**. Le téléphone affiche par exemple
-  « « Axel-Laptop » très proche · Axel-Laptop tient un objet, faites DROP ! ».
+  « Mon-PC » très proche, avec la mention « Tient un objet ».
 - Les appareils se trouvent même quand le Wi-Fi bloque la découverte mDNS
   (points d'accès publics, partage de connexion du téléphone...).
 - L'annonce est chiffrée et signée avec une clé dérivée de celle du groupe, et
@@ -283,3 +283,11 @@ android/            application Android (Kotlin, Jetpack Compose)
 - [x] **V1** : PC ↔ PC sur le réseau local, transfert de captures d'écran, chiffré
 - [x] **V2** : fichiers, dossiers, presse-papiers ; icône ; appairage par code court
 - [x] **V3** : application Android, appairage par QR, animations
+
+## Licence
+
+Code sous licence **MIT** (voir [LICENSE](LICENSE)).
+
+Composants tiers : police Plus Jakarta Sans (SIL Open Font License, voir
+`android/FONT_LICENSE_OFL.txt`) ; modèle de gestes MediaPipe (Apache 2.0),
+téléchargé à la compilation ou au premier lancement, non inclus dans le dépôt.
