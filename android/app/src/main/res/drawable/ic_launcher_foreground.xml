@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Main stylisée (même dessin que l'icône PC), dans la zone sûre de 66 dp d'une icône adaptative. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <group android:translateX="24" android:translateY="24" android:scaleX="0.95" android:scaleY="0.95">
+        <path android:fillColor="#FFFFFF" android:pathData="M18,38 h28 a8,8 0 0 1 8,8 v8 a8,8 0 0 1 -8,8 h-20 a8,8 0 0 1 -8,-8 z" />
+        <path android:fillColor="#FFFFFF" android:pathData="M18,17 a3,3 0 0 1 6,0 v26 h-6 z" />
+        <path android:fillColor="#FFFFFF" android:pathData="M25.5,13 a3,3 0 0 1 6,0 v30 h-6 z" />
+        <path android:fillColor="#FFFFFF" android:pathData="M33,15 a3,3 0 0 1 6,0 v28 h-6 z" />
+        <path android:fillColor="#FFFFFF" android:pathData="M40.5,21 a3,3 0 0 1 6,0 v22 h-6 z" />
+        <path android:fillColor="#FFFFFF" android:pathData="M12,38 a4,4 0 0 1 4,-4 h6 v8 h-6 a4,4 0 0 1 -4,-4 z" />
+    </group>
+</vector>

@@ -8,3 +8,5 @@ models/
 *.csv
 *.egg-info/
 build/
+# APK compilé (voir android/)
+*.apk

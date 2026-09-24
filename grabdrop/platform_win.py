@@ -255,3 +255,61 @@ def show_error_box(message: str) -> None:
         import ctypes
 
         ctypes.windll.user32.MessageBoxW(None, message, "GrabDrop", 0x10)
+
+
+def enable_dpi_awareness() -> None:
+    """Coordonnées en pixels réels (écrans à 125 %, 150 %...), identiques pour Tk et les captures."""
+    if IS_WINDOWS:
+        import ctypes
+
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(2)  # par écran
+        except Exception:
+            pass  # déjà réglé (mss le fait aussi) ou Windows trop ancien
+
+
+def monitor_under_cursor() -> tuple[int, int, int, int]:
+    """(gauche, haut, largeur, hauteur) de la zone de travail de l'écran sous la souris."""
+    if IS_WINDOWS:
+        try:
+            import win32api
+
+            monitor = win32api.MonitorFromPoint(win32api.GetCursorPos(), 2)  # 2 = le plus proche
+            left, top, right, bottom = win32api.GetMonitorInfo(monitor)["Work"]
+            return left, top, right - left, bottom - top
+        except Exception:
+            pass
+    return 0, 0, 1920, 1080
+
+
+def make_overlay_window(tk_widget_id: int) -> None:
+    """Fenêtre d'animation : ne prend jamais le focus, laisse passer les clics, absente de la barre des tâches."""
+    if not IS_WINDOWS:
+        return
+    import ctypes
+
+    user32 = ctypes.windll.user32
+    hwnd = user32.GetParent(tk_widget_id) or tk_widget_id  # fenêtre de premier niveau créée par Tk
+    GWL_EXSTYLE = -20
+    WS_EX_LAYERED, WS_EX_TRANSPARENT, WS_EX_TOOLWINDOW, WS_EX_NOACTIVATE = 0x80000, 0x20, 0x80, 0x08000000
+    style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+    user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style | WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE)
+
+
+def foreground_window() -> int | None:
+    if not IS_WINDOWS:
+        return None
+    import ctypes
+
+    return ctypes.windll.user32.GetForegroundWindow() or None
+
+
+def restore_foreground(hwnd: int | None) -> None:
+    """Rend le premier plan à `hwnd` s'il nous a été pris."""
+    if not IS_WINDOWS or not hwnd:
+        return
+    import ctypes
+
+    user32 = ctypes.windll.user32
+    if user32.GetForegroundWindow() != hwnd and user32.IsWindow(hwnd):
+        user32.SetForegroundWindow(hwnd)

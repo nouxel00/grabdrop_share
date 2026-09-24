@@ -7,7 +7,7 @@ import os
 import socket
 import sys
 import uuid
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
 
@@ -24,6 +24,8 @@ class Config:
     device_id: str
     device_name: str
     pairing_code: str | None = None
+    # « ip:port » d'appareils appairés par QR (téléphones), en secours de la découverte mDNS
+    known_peers: list[str] = field(default_factory=list)
 
 
 def load_config(path: Path | None = None) -> Config:

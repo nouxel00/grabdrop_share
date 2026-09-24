@@ -7,12 +7,15 @@ Huawei Share : on **ferme la main** devant un écran pour « attraper », on
 Tout le traitement vidéo est fait localement : aucune image de la caméra ne
 quitte l'appareil.
 
-## État : V2 (fichiers, presse-papiers, icône, appairage court)
+## État : V3 (PC Windows + téléphone Android, animations)
 
 | Geste | Séquence | Effet |
 |---|---|---|
-| Attraper | main ouverte → poing fermé (tenu ~0,3 s) | met un objet « en main » pendant 20 s |
-| Déposer | poing fermé → main ouverte (tenue ~0,3 s) | l'objet en main sur un autre PC arrive ici |
+| Attraper | main ouverte → poing fermé (tenu ~0,3 s) | met un objet « en main » (20 s sur PC, 60 s sur téléphone) |
+| Déposer | poing fermé → main ouverte (tenue ~0,3 s) | l'objet en main sur un autre appareil arrive ici |
+
+Sur PC, une animation accompagne chaque geste : l'objet attrapé rétrécit vers
+le bas de l'écran, l'objet reçu surgit au centre (désactivable avec `--no-animations`).
 
 **Ce qui est attrapé**, par ordre de priorité :
 
@@ -71,16 +74,24 @@ Sans console : `pythonw -m grabdrop` (ou `grabdropw`). Le journal est dans
 ## Appairage
 
 Sur un PC : icône → **Appairer un nouvel appareil…** (ou `python -m grabdrop pair`).
-Un code à 6 chiffres s'affiche pendant 2 minutes.
+Une fenêtre affiche pendant 2 minutes un **code à 6 chiffres** (pour un autre PC)
+et un **QR code** (pour un téléphone).
 
-Sur l'autre : icône → **Rejoindre un groupe…** et saisir le code (ou
-`python -m grabdrop pair 123456`).
+- Autre PC : icône → **Rejoindre un groupe…** et saisir le code (ou
+  `python -m grabdrop pair 123456`).
+- Téléphone : app GrabDrop → **Scanner le QR code** (l'appareil photo du
+  téléphone ouvre aussi l'app directement).
 
 L'échange du code utilise SPAKE2 (échange de clé authentifié par mot de passe) :
 écouter le réseau ne permet pas de retrouver le code, et un seul essai est
-accepté par code. Ensuite, tous les échanges sont chiffrés et authentifiés
-(AES-256-GCM, transferts découpés en morceaux chiffrés et numérotés) avec la clé
-du groupe, stockée dans `%APPDATA%\GrabDrop\config.json`.
+accepté par code. Le QR contient un jeton aléatoire de 128 bits qui ne circule
+jamais sur le réseau et ne sert qu'une fois. Ensuite, tous les échanges sont
+chiffrés et authentifiés (AES-256-GCM, transferts découpés en morceaux chiffrés
+et numérotés) avec la clé du groupe, stockée dans `%APPDATA%\GrabDrop\config.json`.
+
+À l'appairage par QR, le PC et le téléphone retiennent l'adresse l'un de
+l'autre : si la découverte automatique (mDNS) est bloquée par le Wi-Fi, ils se
+joignent quand même.
 
 Pour ajouter un troisième appareil, répétez l'opération depuis n'importe quel
 appareil du groupe. En secours, `python -m grabdrop code` affiche le code de
@@ -103,6 +114,7 @@ groupe complet, utilisable avec `pair`.
 | `--recent-copy-seconds 60` | ancienneté maximale d'une copie pour être attrapée |
 | `--images-out`, `--files-out` | dossiers de réception |
 | `--no-open` | ne rien ouvrir automatiquement à la réception |
+| `--no-animations` | pas d'animation à l'écran au GRAB et au DROP |
 | `--camera 1`, `--allow-back`, `--log essai.csv` | autre webcam ; accepter le dos de la main ; journal de réglage |
 
 Démo des gestes seuls, sans réseau : `python -m grabdrop.demo`.
@@ -115,6 +127,38 @@ Démo des gestes seuls, sans réseau : `python -m grabdrop.demo`.
   l'appairage), ou leurs horloges ont plus de 2 minutes d'écart.
 - *« Caméra indisponible »* : une autre application l'utilise ; GrabDrop
   réessaie toutes les 5 s.
+
+## Application Android
+
+Android 10 ou plus récent, avec les services Google (pour le scanner de QR).
+
+**Installer** : copier `GrabDrop.apk` sur le téléphone et l'ouvrir (autoriser
+l'installation d'applications inconnues), ou, téléphone branché en USB avec le
+débogage USB activé :
+
+```bash
+adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+**Compiler** (JDK 17 ou plus, SDK Android) :
+
+```bash
+cd android
+./gradlew assembleDebug        # Windows : gradlew.bat assembleDebug
+```
+
+**Utiliser** :
+
+| Pour… | Faire |
+|---|---|
+| envoyer du téléphone vers un PC | « Partager → GrabDrop » depuis n'importe quelle app (photos, fichiers, liens, texte), ou les boutons **Photos** / **Fichiers** de l'app ; puis DROP devant un PC |
+| recevoir sur le téléphone | GRAB devant un PC, puis DROP devant le téléphone (app ouverte), ou bouton **Recevoir** |
+| attraper un texte copié | copier le texte, ouvrir GrabDrop, GRAB devant le téléphone (copie de moins d'une minute) |
+
+La caméra ne surveille les gestes que lorsque l'app est à l'écran. Un objet
+partagé reste en main 60 s, même si l'app passe en arrière-plan (notification).
+À la réception : fichiers dans `Téléchargements/GrabDrop`, captures et images
+dans `Images/GrabDrop`, texte dans le presse-papiers (un lien s'ouvre).
 
 ## Fonctionnement
 
@@ -129,8 +173,13 @@ Démo des gestes seuls, sans réseau : `python -m grabdrop.demo`.
 ## Tests
 
 ```bash
-pytest
+pytest                                   # PC (Python)
+cd android && ./gradlew testDebugUnitTest  # téléphone (Kotlin), dont l'interopérabilité avec le Python
 ```
+
+Le test d'interopérabilité lance un vrai nœud Python (`tools/interop_peer.py`) :
+transferts dans les deux sens et appairage par QR entre le code Kotlin et le code
+Python.
 
 ## Structure
 
@@ -146,14 +195,26 @@ grabdrop/
   deliver.py        ce qui se passe à la réception
   items.py          objets transférables, objet « en main », noms de fichiers sûrs
   network.py        découverte mDNS, serveur et client HTTP chiffrés, transferts en flux
-  pairing.py        appairage par code à 6 chiffres (SPAKE2)
+  pairing.py        appairage par code à 6 chiffres (SPAKE2) et par QR code
   crypto.py         clé de groupe, chiffrement AES-256-GCM, flux chiffrés
   platform_win.py   Explorateur, presse-papiers, dossiers Windows, démarrage auto
   tray.py           icône de la barre des tâches
-  dialogs.py        fenêtres d'affichage et de saisie du code
-  config.py         identité de l'appareil, clé du groupe
+  ui.py             thread d'interface unique (tkinter)
+  dialogs.py        fenêtres d'appairage (code et QR) et de saisie du code
+  overlay.py        animations à l'écran (GRAB, DROP)
+  config.py         identité de l'appareil, clé du groupe, adresses connues
   demo.py           démo des gestes sans réseau
 tests/              tests unitaires et réseau (plusieurs PC simulés en local)
+tools/
+  interop_peer.py   nœud Python piloté par le test d'interopérabilité Kotlin
+android/            application Android (Kotlin, Jetpack Compose)
+  app/src/main/java/io/github/nouxel00/grabdrop/
+    core/           protocole, chiffrement, gestes : Kotlin pur, testé sur PC
+    GrabDropRuntime.kt  état de l'app, envoi, réception, appairage
+    GestureCamera.kt    caméra frontale + MediaPipe
+    Discovery.kt        découverte mDNS (NsdManager)
+    Storage.kt          Téléchargements, Images, presse-papiers
+    ui/                 écran principal et animations
 ```
 
 ## Feuille de route
@@ -161,4 +222,4 @@ tests/              tests unitaires et réseau (plusieurs PC simulés en local)
 - [x] **V0** : détection fiable des gestes grab/drop
 - [x] **V1** : PC ↔ PC sur le réseau local, transfert de captures d'écran, chiffré
 - [x] **V2** : fichiers, dossiers, presse-papiers ; icône ; appairage par code court
-- [ ] **V3** : application Android, animations
+- [x] **V3** : application Android, appairage par QR, animations

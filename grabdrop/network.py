@@ -41,6 +41,7 @@ MAX_REQUEST_BYTES = 64 * 1024
 MAX_HEADER_BYTES = 16 * 1024 * 1024  # liste des fichiers
 MAX_MEMORY_BYTES = 256 * 1024 * 1024  # capture, image ou texte (les fichiers, eux, vont sur disque)
 TIMEOUT_S = 3.0
+FALLBACK_TIMEOUT_S = 1.0  # appareil peut-être absent : ne pas ralentir le DROP
 
 log = logging.getLogger("grabdrop")
 
@@ -51,6 +52,7 @@ class Peer:
     name: str
     host: str
     port: int
+    fallback: bool = False  # adresse retenue à l'appairage, utilisée si mDNS ne trouve pas l'appareil
 
     @property
     def url(self) -> str:
@@ -93,6 +95,7 @@ class Node:
         self._host = host
         self._requested_port = port
         self._static_peers = [Peer("", f"{h}:{p}", h, p) for h, p in static_peers]
+        self._fallback_peers: list[Peer] = []
         self._discovery = Discovery(config, channel.group_id, on_peer_found) if discovery else None
         self._server: ThreadingHTTPServer | None = None
         self.pairing: PairingHost | None = None  # fenêtre d'appairage en cours (voir pairing.py)
@@ -125,10 +128,18 @@ class Node:
             self._discovery = Discovery(self.config, channel.group_id, on_peer_found)
             self._discovery.start(self.port)
 
+    def set_fallback_peers(self, addresses: list[tuple[str, int]]) -> None:
+        self._fallback_peers = [Peer("", f"{h}:{p}", h, p, fallback=True) for h, p in addresses]
+
     def peers(self) -> list[Peer]:
         found = self._discovery.peers() if self._discovery else []
+        result = list(found)
         known = {(p.host, p.port) for p in found}
-        return found + [p for p in self._static_peers if (p.host, p.port) not in known]
+        for p in self._static_peers + self._fallback_peers:  # adresses manuelles, puis de secours
+            if (p.host, p.port) not in known:
+                known.add((p.host, p.port))
+                result.append(p)
+        return result
 
     # --- côté client -------------------------------------------------------
 
@@ -178,7 +189,8 @@ class Node:
         """Petite requête chiffrée ; renvoie le corps déchiffré de la réponse, ou None."""
         sealed = self._seal_request(path, payload)
         try:
-            with urllib.request.urlopen(_post(peer, path, sealed), timeout=TIMEOUT_S) as resp:
+            timeout = FALLBACK_TIMEOUT_S if peer.fallback else TIMEOUT_S
+            with urllib.request.urlopen(_post(peer, path, sealed), timeout=timeout) as resp:
                 raw = resp.read(MAX_REQUEST_BYTES + 1)
         except urllib.error.HTTPError as e:
             _report_http_error(peer, e)
@@ -277,7 +289,7 @@ class _Handler(BaseHTTPRequestHandler):
 
         if self.path.startswith("/v1/pair/"):  # appairage : protégé par le PAKE, pas par le groupe
             pairing = self.node.pairing
-            status, reply = pairing.handle(self.path, body) if pairing else (404, b"")
+            status, reply = pairing.handle(self.path, body, self.client_address[0]) if pairing else (404, b"")
             return self._reply(status, reply)
 
         try:
@@ -381,6 +393,18 @@ class Discovery:
             self._peers[name] = peer
         if is_new and self._on_peer_found:
             self._on_peer_found(peer)
+
+
+def local_ipv4_addresses() -> list[str]:
+    """Adresses IPv4 utilisables par un autre appareil, l'interface par défaut en premier."""
+    import ifaddr  # fourni avec zeroconf
+
+    addresses = [local_ip()]
+    for adapter in ifaddr.get_adapters():
+        for ip in adapter.ips:
+            if isinstance(ip.ip, str) and not ip.ip.startswith(("127.", "169.254.")) and ip.ip not in addresses:
+                addresses.append(ip.ip)
+    return [a for a in addresses if a != "127.0.0.1"][:4] or ["127.0.0.1"]
 
 
 def local_ip() -> str:

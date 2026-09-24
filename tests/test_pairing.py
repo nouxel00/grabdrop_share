@@ -1,3 +1,8 @@
+import base64
+import json
+import os
+import urllib.error
+import urllib.request
 import uuid
 
 import pytest
@@ -6,7 +11,16 @@ from grabdrop.config import Config
 from grabdrop.crypto import Channel, new_pairing_code, parse_code
 from grabdrop.items import HeldItem
 from grabdrop.network import Node
-from grabdrop.pairing import PairingError, PairingHost, format_short_code, join, new_short_code, normalize_short_code
+from grabdrop.pairing import (
+    PairingError,
+    PairingHost,
+    format_short_code,
+    join,
+    join_with_qr,
+    new_short_code,
+    normalize_short_code,
+    qr_uri,
+)
 
 
 @pytest.fixture
@@ -89,3 +103,49 @@ def test_window_closes_soon_after_a_failed_attempt(host_node, monkeypatch):
     monkeypatch.setattr(pairing, "CONFIRM_TIMEOUT_S", 0)
     assert not host_node.pairing.active()  # ...mais sans confirmation, la fenêtre se ferme
     assert host_node.pairing.finished.is_set()
+
+
+# --- QR code (téléphone) ---------------------------------------------------------
+
+
+def _qr_for(node, hosts=("127.0.0.1",)):
+    return qr_uri(node.pairing.qr_token, list(hosts), node.port, node.config.device_name)
+
+
+def test_qr_pairing(host_node):
+    paired = open_window(host_node)
+    result = join_with_qr(_qr_for(host_node), uuid.uuid4().hex, "Téléphone", service_port=47999)
+    assert result.group_code == host_node.config.pairing_code
+    assert result.host_name == "PC-hôte"
+    assert paired == ["Téléphone"]
+    # Le PC retient l'adresse du téléphone, en secours de la découverte mDNS.
+    assert host_node.pairing.guest_address == ("127.0.0.1", 47999)
+    # Usage unique : le même QR ne sert plus.
+    with pytest.raises(PairingError):
+        join_with_qr(_qr_for(host_node), uuid.uuid4().hex, "Autre")
+
+
+def test_qr_tries_each_address(host_node):
+    open_window(host_node)
+    # Première adresse injoignable (réseau VPN, etc.), la seconde est la bonne.
+    result = join_with_qr(_qr_for(host_node, hosts=("127.0.0.2", "127.0.0.1")), uuid.uuid4().hex, "Téléphone")
+    assert result.group_code == host_node.config.pairing_code
+
+
+def test_request_without_token_is_refused_but_does_not_burn_the_qr(host_node):
+    open_window(host_node)
+    forged = {"id": "x", "name": "Intrus", "nonce": base64.b64encode(os.urandom(16)).decode(),
+              "mac": base64.b64encode(os.urandom(32)).decode()}
+    req = urllib.request.Request(f"http://127.0.0.1:{host_node.port}/v1/pair/qr",
+                                 data=json.dumps(forged).encode(), method="POST")
+    with pytest.raises(urllib.error.HTTPError) as e:
+        urllib.request.urlopen(req, timeout=5)
+    assert e.value.code == 403
+    # Le vrai téléphone peut toujours s'appairer.
+    assert join_with_qr(_qr_for(host_node), uuid.uuid4().hex, "Téléphone").group_code == host_node.config.pairing_code
+
+
+def test_foreign_qr_is_rejected():
+    for bad in ["https://example.com", "grabdrop://autre?v=1", "grabdrop://pair?v=2&h=1&p=1&t=AA"]:
+        with pytest.raises(PairingError):
+            join_with_qr(bad, "id", "nom")

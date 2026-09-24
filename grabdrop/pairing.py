@@ -12,6 +12,13 @@ sur un million.
  1. invité -> hôte : POST /v1/pair/start   {"msg": SPAKE2 invité, "id", "name"}
  2. hôte -> invité : {"msg": SPAKE2 hôte, "name", "box": AES-GCM(clé PAKE, secret du groupe)}
  3. invité -> hôte : POST /v1/pair/confirm {"mac": HMAC(clé PAKE)}  (l'hôte sait que c'est réussi)
+
+Variante téléphone (QR code) : l'hôte affiche un QR contenant son adresse et un
+jeton aléatoire de 128 bits, valable pendant la même fenêtre et une seule fois.
+Le jeton ne circule jamais sur le réseau :
+ 1. téléphone -> hôte : POST /v1/pair/qr {"id", "name", "nonce", "mac": HMAC(jeton, nonce + id)}
+ 2. hôte -> téléphone : {"box": AES-GCM(clé dérivée du jeton, secret du groupe)}
+Un appareil qui n'a pas scanné le QR ne peut ni fabriquer la requête, ni lire la réponse.
 """
 
 from __future__ import annotations
@@ -26,6 +33,7 @@ import socket
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from typing import Callable
@@ -41,6 +49,8 @@ PAIR_SERVICE_TYPE = "_grabdrop-pair._tcp.local."
 PAIRING_WINDOW_S = 120
 CONFIRM_TIMEOUT_S = 10  # essai sans confirmation (mauvais code) : la fenêtre se ferme
 SHORT_CODE_DIGITS = 6
+QR_TOKEN_BYTES = 16
+QR_SCHEME = "grabdrop"
 _SPAKE_ID = b"grabdrop pair v1"
 TIMEOUT_S = 5.0
 
@@ -86,6 +96,22 @@ def _b64(data: bytes) -> str:
     return base64.b64encode(data).decode()
 
 
+def _qr_mac(token: bytes, nonce: bytes, device_id: str) -> bytes:
+    return hmac.new(_derive(token, b"grabdrop qr mac"), nonce + device_id.encode(), "sha256").digest()
+
+
+def qr_uri(token: bytes, hosts: list[str], port: int, device_name: str) -> str:
+    """Contenu du QR : grabdrop://pair?v=1&h=IP1,IP2&p=PORT&t=JETON&n=NOM."""
+    query = urllib.parse.urlencode({
+        "v": 1,
+        "h": ",".join(hosts),
+        "p": port,
+        "t": base64.b32encode(token).decode().rstrip("="),
+        "n": device_name,
+    })
+    return f"{QR_SCHEME}://pair?{query}"
+
+
 class PairingHost:
     """Côté hôte : une fenêtre d'appairage, une seule tentative."""
 
@@ -98,6 +124,8 @@ class PairingHost:
         window_s: float = PAIRING_WINDOW_S,
     ) -> None:
         self.short_code = short_code
+        self.qr_token = secrets.token_bytes(QR_TOKEN_BYTES)
+        self._qr_used = False
         self._group_code = group_code
         self._device_name = device_name
         self._on_paired = on_paired
@@ -108,6 +136,9 @@ class PairingHost:
         self._guest_name = "?"
         self.finished = threading.Event()
         self.paired_with: str | None = None
+        # Adresse du téléphone appairé par QR (ip, port de son serveur) : gardée
+        # en secours, si la découverte mDNS ne le trouve pas plus tard.
+        self.guest_address: tuple[str, int] | None = None
 
     def active(self) -> bool:
         now = time.monotonic()
@@ -118,7 +149,7 @@ class PairingHost:
     def cancel(self) -> None:
         self.finished.set()
 
-    def handle(self, path: str, body: bytes) -> tuple[int, bytes]:
+    def handle(self, path: str, body: bytes, client_ip: str = "") -> tuple[int, bytes]:
         """Traite une requête /v1/pair/... ; renvoie (statut HTTP, corps)."""
         with self._lock:
             if not self.active():
@@ -129,6 +160,8 @@ class PairingHost:
                     return self._start(request)
                 if path == "/v1/pair/confirm":
                     return self._confirm(request)
+                if path == "/v1/pair/qr":
+                    return self._qr(request, client_ip)
             except (ValueError, KeyError, TypeError):
                 return 400, b""
             return 404, b""
@@ -148,6 +181,27 @@ class PairingHost:
         box = _seal_box(self._key, {"group_code": self._group_code})
         reply = {"msg": _b64(own_msg), "name": self._device_name, "box": _b64(box)}
         return 200, json.dumps(reply).encode()
+
+    def _qr(self, request: dict, client_ip: str = "") -> tuple[int, bytes]:
+        if self._qr_used:
+            return 409, b""
+        nonce, device_id = base64.b64decode(request["nonce"]), str(request["id"])
+        if len(nonce) < 16 or not hmac.compare_digest(base64.b64decode(request["mac"]), _qr_mac(self.qr_token, nonce, device_id)):
+            # Requête sans le jeton : refusée, mais ne consomme pas la fenêtre
+            # (un appareil quelconque du réseau ne peut pas la bloquer).
+            return 403, b""
+        self._qr_used = True
+        key = _derive(self.qr_token, b"grabdrop qr box")
+        box_nonce = os.urandom(12)
+        box = box_nonce + AESGCM(key).encrypt(box_nonce, json.dumps({"group_code": self._group_code}).encode(), nonce)
+        port = request.get("port")
+        if client_ip and isinstance(port, int) and 0 < port < 65536:
+            self.guest_address = (client_ip, port)
+        self.finished.set()
+        self.paired_with = str(request.get("name", "?"))[:100]
+        if self._on_paired:
+            self._on_paired(self.paired_with)
+        return 200, json.dumps({"box": _b64(box), "name": self._device_name}).encode()
 
     def _confirm(self, request: dict) -> tuple[int, bytes]:
         if self._key is None:
@@ -193,6 +247,31 @@ def _join_host(short_code: str, host: str, port: int, device_id: str, device_nam
         raise PairingError("code incorrect (générez-en un nouveau sur l'autre appareil)") from None
     _post(host, port, "/v1/pair/confirm", {"mac": _b64(_confirm_mac(key))})
     return JoinResult(payload["group_code"], str(reply.get("name", host)))
+
+
+def join_with_qr(uri: str, device_id: str, device_name: str, service_port: int = 47800) -> JoinResult:
+    """Côté téléphone (référence Python, utilisée par les tests) : appairage à partir du contenu du QR."""
+    parsed = urllib.parse.urlparse(uri)
+    query = dict(urllib.parse.parse_qsl(parsed.query))
+    if parsed.scheme != QR_SCHEME or parsed.netloc != "pair" or query.get("v") != "1":
+        raise PairingError("QR code non reconnu")
+    token = base64.b32decode(query["t"] + "=" * (-len(query["t"]) % 8))
+    nonce = os.urandom(16)
+    payload = {
+        "id": device_id, "name": device_name, "port": service_port,
+        "nonce": _b64(nonce), "mac": _b64(_qr_mac(token, nonce, device_id)),
+    }
+    error = PairingError("appareil injoignable")
+    for host in query["h"].split(","):
+        try:
+            reply = json.loads(_post(host, int(query["p"]), "/v1/pair/qr", payload))
+        except PairingError as e:
+            error = e
+            continue
+        box = base64.b64decode(reply["box"])
+        group = json.loads(AESGCM(_derive(token, b"grabdrop qr box")).decrypt(box[:12], box[12:], nonce))
+        return JoinResult(group["group_code"], str(reply.get("name", host)))
+    raise error
 
 
 def _post(host: str, port: int, path: str, payload: dict) -> bytes:

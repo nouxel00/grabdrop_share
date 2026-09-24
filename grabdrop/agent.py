@@ -32,7 +32,7 @@ from grabdrop.crypto import Channel, format_code, new_pairing_code, parse_code
 from grabdrop.deliver import Destinations, deliver
 from grabdrop.gestures import Event
 from grabdrop.items import HeldItem, human_size
-from grabdrop.network import DEFAULT_PORT, Node
+from grabdrop.network import DEFAULT_PORT, Node, local_ipv4_addresses
 from grabdrop.pairing import (
     PAIRING_WINDOW_S,
     PairingAdvertiser,
@@ -42,6 +42,7 @@ from grabdrop.pairing import (
     join,
     new_short_code,
     normalize_short_code,
+    qr_uri,
 )
 from grabdrop.sources import RECENT_COPY_S, ClipboardWatcher, grab_content
 
@@ -91,6 +92,7 @@ def add_run_arguments(p: argparse.ArgumentParser) -> None:
     p.add_argument("--images-out", type=Path, help="dossier des captures et images reçues (défaut : Images\\GrabDrop)")
     p.add_argument("--files-out", type=Path, help="dossier des fichiers reçus (défaut : Téléchargements\\GrabDrop)")
     p.add_argument("--no-open", action="store_true", help="ne pas ouvrir automatiquement ce qui est reçu")
+    p.add_argument("--no-animations", action="store_true", help="pas d'animation à l'écran au GRAB et au DROP")
 
 
 def setup_logging() -> None:
@@ -134,7 +136,15 @@ def cmd_pair_host(config: Config) -> None:
     advertiser = PairingAdvertiser(node.port, config.device_id, config.device_name)
     print(f"\n    Code d'appairage :  {format_short_code(short)}\n")
     print(f"Sur l'autre PC :  python -m grabdrop pair {short}")
-    print(f"(ou icône GrabDrop → « Rejoindre un groupe… »). Valable {PAIRING_WINDOW_S // 60} minutes, un seul essai.")
+    print("(ou icône GrabDrop → « Rejoindre un groupe… »).")
+    print("Sur un téléphone : app GrabDrop → « Appairer », puis scanner :")
+    try:
+        from grabdrop.dialogs import print_qr
+
+        print_qr(qr_uri(host.qr_token, local_ipv4_addresses(), node.port, config.device_name))
+    except UnicodeEncodeError:
+        print("(la console ne peut pas afficher le QR : utilisez l'icône → « Appairer un nouvel appareil… »)")
+    print(f"Valable {PAIRING_WINDOW_S // 60} minutes, un seul essai.")
     try:
         while host.active():
             host.finished.wait(0.5)
@@ -208,6 +218,7 @@ class Agent:
             discovery=not self.args.no_discovery,
             on_peer_found=lambda peer: log.info(f"Appareil trouvé : {peer.name} ({peer.host})"),
         )
+        self.node.set_fallback_peers([_parse_peer(p) for p in self.config.known_peers])
         try:
             self.node.start()
         except OSError:
@@ -215,6 +226,10 @@ class Agent:
 
         if self.watcher:
             self.watcher.start()
+        if platform_win.IS_WINDOWS:
+            from grabdrop.ui import ui
+
+            ui()  # thread d'interface créé dès maintenant (fenêtres, animations)
         if not self.args.no_tray:
             from grabdrop.tray import Tray
 
@@ -246,6 +261,9 @@ class Agent:
             self.node.stop()
             if self.tray:
                 self.tray.stop()
+            from grabdrop.ui import shutdown_ui
+
+            shutdown_ui()
             log.info("GrabDrop arrêté.")
 
     def quit(self) -> None:
@@ -274,6 +292,10 @@ class Agent:
 
     def _switch_group(self, group_code: str) -> None:
         self.config.pairing_code = group_code
+        self.config.known_peers = []  # adresses de l'ancien groupe : plus valables
+        save_config(self.config)
+        self._config_mtime = _mtime(config_path())
+        self.node.set_fallback_peers([])
         self.node.change_group(Channel(parse_code(group_code)))
         self.held.clear()
         self.notify("Groupe d'appareils mis à jour.")
@@ -291,6 +313,7 @@ class Agent:
             log.exception("GRAB impossible")
             return self.notify(f"Rien n'a pu être attrapé ({e}).", "error")
         self.held.hold(item)
+        self._animate("play_grab", item)
         self.notify(f"En main : {item.describe()}. Déposez-le sur un autre appareil "
                     f"dans les {self.held.ttl_s:.0f} s.", "grab")
 
@@ -306,6 +329,7 @@ class Agent:
                 if item is None:
                     continue  # déjà pris par un autre appareil, ou transfert échoué
                 message = deliver(item, staging, self.dest, self.watcher)
+                self._animate("play_drop", item)
                 elapsed = time.monotonic() - started
                 if item.size >= LARGE_TRANSFER_BYTES:
                     message += f" ({human_size(int(item.size / max(elapsed, 1e-3)))}/s)"
@@ -321,6 +345,16 @@ class Agent:
             self.notify("Rien à déposer : aucun appareil n'a d'objet en main.", "error")
 
     # --- retours à l'utilisateur
+
+    def _animate(self, animation: str, item) -> None:
+        if self.args.no_animations or not platform_win.IS_WINDOWS:
+            return
+        try:
+            from grabdrop import overlay
+
+            getattr(overlay, animation)(item)
+        except Exception:
+            log.exception("Animation impossible")  # jamais bloquant pour le transfert
 
     def notify(self, message: str, sound: str | None = None) -> None:
         (log.warning if sound == "error" else log.info)(message)
@@ -368,12 +402,23 @@ class Agent:
         short = new_short_code()
         host = PairingHost(
             short, self.config.pairing_code, self.config.device_name,
-            on_paired=lambda name: self.notify(f"Appareil « {name} » ajouté au groupe."),
+            on_paired=lambda name: self._on_paired(host, name),
         )
         self.node.pairing = host
         self._pairing = (host, PairingAdvertiser(self.node.port, self.config.device_id, self.config.device_name))
         log.info(f"Code d'appairage : {format_short_code(short)} (valable {PAIRING_WINDOW_S // 60} min)")
-        show_pairing_code(short, PAIRING_WINDOW_S, lambda: not host.active())
+        qr = qr_uri(host.qr_token, local_ipv4_addresses(), self.node.port, self.config.device_name)
+        show_pairing_code(short, qr, PAIRING_WINDOW_S, lambda: not host.active())
+
+    def _on_paired(self, host: PairingHost, name: str) -> None:
+        if host.guest_address:  # téléphone appairé par QR : on retient son adresse en secours
+            ip, port = host.guest_address
+            entry = f"{ip}:{port}"
+            self.config.known_peers = [p for p in self.config.known_peers if p != entry][-7:] + [entry]
+            save_config(self.config)
+            self._config_mtime = _mtime(config_path())
+            self.node.set_fallback_peers([_parse_peer(p) for p in self.config.known_peers])
+        self.notify(f"Appareil « {name} » ajouté au groupe.")
 
     def _end_pairing(self) -> None:
         if self._pairing:

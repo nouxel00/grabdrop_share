@@ -2,6 +2,7 @@
 
 import logging
 import os
+import time
 import uuid
 
 import pytest
@@ -146,4 +147,24 @@ def test_unreachable_peer_is_skipped(make_node):
     a.held.hold(screenshot())
     b = make_node("PC-B", peers=[a])
     b._static_peers.append(Peer("", "eteint", "127.0.0.1", 1))
+    assert [o.device_name for o in b.find_offers()] == ["PC-A"]
+
+
+def test_unreachable_fallback_peer_does_not_slow_drop(make_node):
+    a = make_node("PC-A")
+    a.held.hold(screenshot())
+    b = make_node("PC-B", peers=[a])
+    # Téléphone appairé autrefois, absent du réseau : adresse non routable.
+    b.set_fallback_peers([("10.255.255.1", 47800)])
+    started = time.monotonic()
+    assert [o.device_name for o in b.find_offers()] == ["PC-A"]
+    assert time.monotonic() - started < 2.5
+
+
+def test_fallback_peer_is_used_and_not_duplicated(make_node):
+    a = make_node("PC-A")
+    a.held.hold(screenshot())
+    b = make_node("PC-B")
+    b.set_fallback_peers([("127.0.0.1", a.port), ("127.0.0.1", a.port)])
+    assert [p.fallback for p in b.peers()] == [True]
     assert [o.device_name for o in b.find_offers()] == ["PC-A"]

@@ -17,6 +17,7 @@ dependencies = [
     "spake2>=0.9",
     "pillow>=10",
     "pystray>=0.19",
+    "qrcode>=7.4",
     "pywin32>=306; sys_platform == 'win32'",
 ]
 
