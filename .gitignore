@@ -10,3 +10,6 @@ models/
 build/
 # APK compilé (voir android/)
 *.apk
+# Fabrication de l'installateur (packaging/build.ps1)
+packaging/build/
+packaging/dist/

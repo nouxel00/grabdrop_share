@@ -498,6 +498,9 @@ class Agent:
         if self.autostart_enabled():
             platform_win.set_autostart(None)
             return self.notify("GrabDrop ne se lancera plus au démarrage de Windows.")
+        if getattr(sys, "frozen", False):  # version installée : GrabDrop.exe
+            platform_win.set_autostart(f'"{sys.executable}"')
+            return self.notify("GrabDrop se lancera à l'ouverture de session Windows.")
         pythonw = Path(sys.executable).with_name("pythonw.exe")
         python = pythonw if pythonw.exists() else Path(sys.executable)
         # Le lancement se fait hors du dossier du projet : GrabDrop doit être installé (pip install -e .).

@@ -36,7 +36,33 @@ Une copie ancienne n'est jamais envoyée, et chaque copie ne part qu'une fois.
 
 Rien n'est jamais écrasé : un élément existant est renommé « nom (1) ».
 
-## Installation (sur chaque PC)
+## Installation sur PC Windows (sans Python)
+
+Lancer **`GrabDrop-Setup-0.4.0.exe`** et suivre l'assistant :
+
+- **pour tous les utilisateurs** (droits administrateur) : GrabDrop est aussi
+  autorisé dans le pare-feu Windows (réseaux privés) ;
+- **pour moi seulement** : sans droits administrateur ; Windows demandera
+  d'autoriser GrabDrop dans le pare-feu au premier lancement.
+
+L'assistant crée un raccourci dans le menu Démarrer (et sur le Bureau en option)
+et propose le lancement automatique à l'ouverture de session. Ensuite, plus
+aucune commande : GrabDrop démarre avec Windows, ou depuis le menu Démarrer.
+La désinstallation (Paramètres → Applications) garde l'appairage.
+
+L'installateur n'est pas signé : Windows SmartScreen peut afficher « Windows a
+protégé votre ordinateur » → **Informations complémentaires** → **Exécuter quand même**.
+
+**Fabriquer l'installateur** (Inno Setup 6 : `winget install JRSoftware.InnoSetup`) :
+
+```bash
+powershell -ExecutionPolicy Bypass -File packaging\build.ps1
+```
+
+Résultat : `packaging\dist\GrabDrop-Setup-<version>.exe`. L'exécutable autonome
+(PyInstaller, modèle de gestes inclus) est dans `packaging\dist\GrabDrop\`.
+
+## Installation pour développer (sur chaque PC)
 
 Python 3.11 recommandé.
 
@@ -230,6 +256,12 @@ grabdrop/
 tests/              tests unitaires et réseau (plusieurs PC simulés en local)
 tools/
   interop_peer.py   nœud Python piloté par le test d'interopérabilité Kotlin
+packaging/          installateur Windows
+  build.ps1         fabrique tout : préparation, PyInstaller, Inno Setup
+  prepare.py        icône .ico, modèle de gestes, informations de version
+  grabdrop.spec     recette PyInstaller (GrabDrop.exe sans console)
+  grabdrop.iss      programme d'installation (raccourcis, démarrage, pare-feu)
+  launcher.py       point d'entrée de GrabDrop.exe
 android/            application Android (Kotlin, Jetpack Compose)
   app/src/main/java/io/github/nouxel00/grabdrop/
     core/           protocole, chiffrement, gestes : Kotlin pur, testé sur PC

@@ -15,8 +15,8 @@ android {
         applicationId = "io.github.nouxel00.grabdrop"
         minSdk = 29
         targetSdk = 35
-        versionCode = 3
-        versionName = "0.3.0"
+        versionCode = 4
+        versionName = "0.4.0"
         ndk {
             // Téléphones récents (ARM 64 bits) et émulateur : divise la taille de l'APK par deux.
             abiFilters += listOf("arm64-v8a", "x86_64")

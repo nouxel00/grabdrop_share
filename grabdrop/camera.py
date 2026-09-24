@@ -116,8 +116,7 @@ def run_camera_loop(
                     camera_problem_reported = True
                     controls.stop.wait(CAMERA_RETRY_S)
                     continue
-                if camera_problem_reported:
-                    log.info("Caméra de nouveau disponible.")
+                log.info("Caméra ouverte, analyse des gestes en cours.")
                 camera_problem_reported = False
 
             ok, frame = cap.read()
@@ -144,6 +143,7 @@ def run_camera_loop(
                     int(r.palm_facing) if r else "", r.extended if r else "", f"{r.size:.3f}" if r else "",
                     r.posture.value if r else "none", machine.stable_posture.value, event.value if event else "",
                 ])
+                csv_file.flush()  # exploitable même si GrabDrop s'arrête brutalement
 
             if not controls.preview:
                 window_shown = _hide_window(title, window_shown)

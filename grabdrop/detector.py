@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,7 +36,10 @@ _CATEGORY_TO_POSTURE = {
 
 
 def ensure_model(path: Path = MODEL_PATH) -> Path:
-    """Télécharge le modèle officiel MediaPipe au premier lancement."""
+    """Modèle livré avec l'exécutable (version installée), sinon téléchargé au premier lancement."""
+    bundled = Path(getattr(sys, "_MEIPASS", "")) / "models" / "gesture_recognizer.task"
+    if getattr(sys, "frozen", False) and bundled.exists():
+        return bundled
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
         print(f"Téléchargement du modèle de gestes -> {path}")
