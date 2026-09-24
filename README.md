@@ -7,6 +7,9 @@ Huawei Share : on **ferme la main** devant un écran pour « attraper », on
 Tout le traitement vidéo est fait localement : aucune image de la caméra ne
 quitte l'appareil.
 
+**[⬇ Télécharger la dernière version](https://github.com/nouxel00/grabdrop_share/releases/latest)** :
+installateur Windows (`GrabDrop-Setup-….exe`) et application Android (`GrabDrop-….apk`).
+
 ## État : V3 (PC Windows + téléphone Android, animations)
 
 | Geste | Séquence | Effet |
@@ -38,7 +41,9 @@ Rien n'est jamais écrasé : un élément existant est renommé « nom (1) ».
 
 ## Installation sur PC Windows (sans Python)
 
-Lancer **`GrabDrop-Setup-0.4.0.exe`** et suivre l'assistant :
+Télécharger **`GrabDrop-Setup-<version>.exe`** depuis la
+[page des versions](https://github.com/nouxel00/grabdrop_share/releases/latest),
+le lancer et suivre l'assistant :
 
 - **pour tous les utilisateurs** (droits administrateur) : GrabDrop est aussi
   autorisé dans le pare-feu Windows (réseaux privés) ;
@@ -159,19 +164,21 @@ Démo des gestes seuls, sans réseau : `python -m grabdrop.demo`.
 
 Android 10 ou plus récent, avec les services Google (pour le scanner de QR).
 
-**Installer** : copier `GrabDrop.apk` sur le téléphone et l'ouvrir (autoriser
-l'installation d'applications inconnues), ou, téléphone branché en USB avec le
-débogage USB activé :
-
-```bash
-adb install -r android/app/build/outputs/apk/debug/app-debug.apk
-```
+**Installer** : sur le téléphone, télécharger **`GrabDrop-<version>.apk`** depuis la
+[page des versions](https://github.com/nouxel00/grabdrop_share/releases/latest)
+et l'ouvrir (autoriser l'installation d'applications de cette source).
 
 **Compiler** (JDK 17 ou plus, SDK Android) :
 
 ```bash
 cd android
 ./gradlew assembleDebug        # Windows : gradlew.bat assembleDebug
+```
+
+puis, téléphone branché en USB avec le débogage USB activé :
+
+```bash
+adb install -r android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
 **Utiliser** :
