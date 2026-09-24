@@ -6,3 +6,5 @@ models/
 .claude/settings.local.json
 # journaux de réglage (--log)
 *.csv
+*.egg-info/
+build/

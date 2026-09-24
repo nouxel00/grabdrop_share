@@ -7,16 +7,31 @@ Huawei Share : on **ferme la main** devant un écran pour « attraper », on
 Tout le traitement vidéo est fait localement : aucune image de la caméra ne
 quitte l'appareil.
 
-## État : V1 (captures d'écran entre PC)
+## État : V2 (fichiers, presse-papiers, icône, appairage court)
 
 | Geste | Séquence | Effet |
 |---|---|---|
-| Attraper | main ouverte → poing fermé (tenu ~0,3 s) | capture de l'écran sous la souris, gardée « en main » 20 s |
-| Déposer | poing fermé → main ouverte (tenue ~0,3 s) | la capture en main sur un autre PC arrive ici, est enregistrée et ouverte |
+| Attraper | main ouverte → poing fermé (tenu ~0,3 s) | met un objet « en main » pendant 20 s |
+| Déposer | poing fermé → main ouverte (tenue ~0,3 s) | l'objet en main sur un autre PC arrive ici |
 
-Une posture seule ne déclenche rien : il faut une transition, ce qui limite les
-faux positifs. La main ouverte n'est acceptée que **paume face à la caméra**,
-et une main trop éloignée est ignorée (gestes destinés à un PC voisin).
+**Ce qui est attrapé**, par ordre de priorité :
+
+1. les fichiers et dossiers **sélectionnés dans l'Explorateur** au premier plan ;
+2. sinon, ce que vous avez **copié (Ctrl+C) il y a moins de 30 s** : texte, image ou fichiers ;
+3. sinon, une **capture de l'écran** sous la souris.
+
+Une copie ancienne n'est jamais envoyée, et chaque copie ne part qu'une fois.
+
+**À la réception** :
+
+| Objet | Ce qui se passe |
+|---|---|
+| capture d'écran | enregistrée dans `Images\GrabDrop` et ouverte |
+| image copiée | enregistrée, ouverte, et placée dans le presse-papiers |
+| texte copié | placé dans le presse-papiers (Ctrl+V) ; un lien seul s'ouvre dans le navigateur |
+| fichiers, dossiers | placés dans `Téléchargements\GrabDrop`, l'Explorateur s'ouvre dessus |
+
+Rien n'est jamais écrasé : un élément existant est renommé « nom (1) ».
 
 ## Installation (sur chaque PC)
 
@@ -27,74 +42,89 @@ git clone https://github.com/nouxel00/grabdrop_share.git
 cd grabdrop_share
 python -m venv .venv
 .venv\Scripts\activate          # Windows (Linux/macOS : source .venv/bin/activate)
-pip install -r requirements-dev.txt
+pip install -e ".[dev]"
 ```
 
-Le modèle MediaPipe (~8 Mo) est téléchargé automatiquement dans `models/` au
-premier lancement.
+Le modèle MediaPipe (~8 Mo) est téléchargé automatiquement au premier lancement.
 
-## Appairage (une seule fois)
-
-Sur le premier PC :
+## Lancement
 
 ```bash
-python -m grabdrop code
+python -m grabdrop
 ```
 
-Il affiche un code du type `ABCD-EFGH-IJKL-MNOP-QRST-UVWX-YZ`. Sur le second PC :
+Une **icône** apparaît dans la barre des tâches (clic droit pour le menu) :
+bleue au repos, orange quand un objet est en main, grise caméra en pause.
 
-```bash
-python -m grabdrop pair ABCD-EFGH-IJKL-MNOP-QRST-UVWX-YZ
-```
+| Menu | Rôle |
+|---|---|
+| Mettre la caméra en pause | libère la webcam (visio, confidentialité) |
+| Afficher l'aperçu caméra | fenêtre de réglage : main détectée, posture, taille |
+| Appairer un nouvel appareil… | affiche un code à 6 chiffres |
+| Rejoindre un groupe… | saisir le code affiché par l'autre appareil |
+| Ouvrir les fichiers reçus | `Téléchargements\GrabDrop` |
+| Lancer au démarrage de Windows | GrabDrop démarre sans console à l'ouverture de session |
 
-Tous les échanges sont chiffrés et authentifiés (AES-256-GCM) avec une clé
-dérivée de ce code : un appareil qui ne le connaît pas ne peut ni voir ni
-récupérer vos captures. Gardez-le pour vous. Il est stocké dans
-`%APPDATA%\GrabDrop\config.json` (Windows) ou `~/.config/grabdrop/` (Linux/macOS).
+Sans console : `pythonw -m grabdrop` (ou `grabdropw`). Le journal est dans
+`%APPDATA%\GrabDrop\grabdrop.log`.
 
-## Utilisation
+## Appairage
 
-```bash
-python -m grabdrop --preview
-```
+Sur un PC : icône → **Appairer un nouvel appareil…** (ou `python -m grabdrop pair`).
+Un code à 6 chiffres s'affiche pendant 2 minutes.
 
-`--preview` affiche la fenêtre caméra (pratique pour les premiers essais) ;
-sans elle, l'agent tourne en console (Ctrl+C pour quitter) et signale chaque
-action par un son. Les captures reçues vont dans `Images\GrabDrop`.
+Sur l'autre : icône → **Rejoindre un groupe…** et saisir le code (ou
+`python -m grabdrop pair 123456`).
 
-Options utiles :
+L'échange du code utilise SPAKE2 (échange de clé authentifié par mot de passe) :
+écouter le réseau ne permet pas de retrouver le code, et un seul essai est
+accepté par code. Ensuite, tous les échanges sont chiffrés et authentifiés
+(AES-256-GCM, transferts découpés en morceaux chiffrés et numérotés) avec la clé
+du groupe, stockée dans `%APPDATA%\GrabDrop\config.json`.
+
+Pour ajouter un troisième appareil, répétez l'opération depuis n'importe quel
+appareil du groupe. En secours, `python -m grabdrop code` affiche le code de
+groupe complet, utilisable avec `pair`.
+
+### Premier lancement sous Windows
+
+- Le **pare-feu Windows** demande d'autoriser Python : cochez **Réseaux privés**.
+- Le Wi-Fi doit être en profil **Privé** (en profil Public, la découverte est bloquée).
+
+## Options
 
 | Option | Rôle |
 |---|---|
+| `--preview` | ouvrir l'aperçu caméra dès le lancement |
+| `--no-tray` | console seule, sans icône (`q` ou Ctrl+C pour quitter) |
 | `--min-hand-size 0.15` | ignorer les mains plus lointaines (si un PC voisin réagit à vos gestes) |
-| `--peer 192.168.1.20` | indiquer l'autre PC à la main, si la découverte automatique échoue |
-| `--hold-seconds 30` | durée pendant laquelle une capture attrapée reste disponible |
-| `--out DOSSIER`, `--no-open` | dossier de réception ; ne pas ouvrir ce qui est reçu |
+| `--peer 192.168.1.20` | indiquer l'autre PC à la main si la découverte automatique échoue |
+| `--hold-seconds 30` | durée pendant laquelle un objet attrapé reste disponible |
+| `--recent-copy-seconds 60` | ancienneté maximale d'une copie pour être attrapée |
+| `--images-out`, `--files-out` | dossiers de réception |
+| `--no-open` | ne rien ouvrir automatiquement à la réception |
 | `--camera 1`, `--allow-back`, `--log essai.csv` | autre webcam ; accepter le dos de la main ; journal de réglage |
 
 Démo des gestes seuls, sans réseau : `python -m grabdrop.demo`.
 
-### Premier lancement sous Windows
-
-- Le **pare-feu Windows** demande d'autoriser Python : cochez **Réseaux privés**
-  et acceptez. Sans cela, l'autre PC ne peut pas récupérer vos captures.
-- Le Wi-Fi doit être en profil **Privé** (Paramètres → Réseau et Internet →
-  propriétés du réseau). En profil Public, Windows bloque la découverte.
-
 ### Dépannage
 
-- *« aucun autre appareil GrabDrop trouvé »* : vérifier le pare-feu et le profil
-  réseau sur les deux PC, ou utiliser `--peer IP_DE_L_AUTRE_PC`.
-- *« refuse la requête »* : les deux PC n'ont pas le même code, ou leurs
-  horloges ont plus de 2 minutes d'écart.
+- *« Aucun autre appareil GrabDrop trouvé »* : pare-feu et profil réseau sur les
+  deux PC, ou `--peer IP_DE_L_AUTRE_PC`.
+- *« refuse la requête »* : les PC ne sont pas du même groupe (refaire
+  l'appairage), ou leurs horloges ont plus de 2 minutes d'écart.
+- *« Caméra indisponible »* : une autre application l'utilise ; GrabDrop
+  réessaie toutes les 5 s.
 
 ## Fonctionnement
 
 1. Chaque PC s'annonce sur le réseau local (mDNS, `_grabdrop._tcp`) avec un
-   identifiant de groupe dérivé du code : il ne voit que les PC de son groupe.
-2. Au GRAB, la capture reste en mémoire sur le PC d'origine ; rien n'est envoyé.
+   identifiant dérivé de la clé du groupe : il ne voit que les PC de son groupe.
+2. Au GRAB, l'objet reste sur le PC d'origine ; rien n'est envoyé.
 3. Au DROP, le PC interroge les autres, récupère l'objet le plus récent (le
-   premier qui le réclame l'obtient, une seule fois) et l'enregistre.
+   premier qui le réclame l'obtient, une seule fois). Les fichiers sont écrits
+   au fil de l'eau dans un dossier temporaire, puis déplacés une fois complets :
+   un transfert interrompu ne laisse rien de partiel.
 
 ## Tests
 
@@ -106,23 +136,29 @@ pytest
 
 ```
 grabdrop/
-  agent.py          agent : commandes run / pair / code, actions GRAB et DROP
-  camera.py         boucle caméra, aperçu, options de détection
+  agent.py          agent : commandes run / pair / code, gestes, menu de l'icône
+  camera.py         boucle caméra (pause, aperçu, reprise si la caméra est occupée)
   gestures.py       machine à états postures -> GRAB/DROP (sans dépendance caméra)
   hand_geometry.py  doigts tendus/repliés, orientation de la paume, taille de la main
   detector.py       détection de la main et de sa posture (MediaPipe)
+  sources.py        ce qui est attrapé : sélection, copie récente, capture
   capture.py        capture d'écran en mémoire
-  items.py          objet « en main » (expiration, retrait unique), enregistrement
-  network.py        découverte mDNS, serveur et client HTTP chiffrés
-  crypto.py         code d'appairage, chiffrement AES-256-GCM
-  config.py         identité de l'appareil, code d'appairage
+  deliver.py        ce qui se passe à la réception
+  items.py          objets transférables, objet « en main », noms de fichiers sûrs
+  network.py        découverte mDNS, serveur et client HTTP chiffrés, transferts en flux
+  pairing.py        appairage par code à 6 chiffres (SPAKE2)
+  crypto.py         clé de groupe, chiffrement AES-256-GCM, flux chiffrés
+  platform_win.py   Explorateur, presse-papiers, dossiers Windows, démarrage auto
+  tray.py           icône de la barre des tâches
+  dialogs.py        fenêtres d'affichage et de saisie du code
+  config.py         identité de l'appareil, clé du groupe
   demo.py           démo des gestes sans réseau
-tests/              tests unitaires et tests réseau (deux PC simulés en local)
+tests/              tests unitaires et réseau (plusieurs PC simulés en local)
 ```
 
 ## Feuille de route
 
 - [x] **V0** : détection fiable des gestes grab/drop
 - [x] **V1** : PC ↔ PC sur le réseau local, transfert de captures d'écran, chiffré
-- [ ] **V2** : presse-papiers et fichiers, appairage par code court, icône dans la barre des tâches
+- [x] **V2** : fichiers, dossiers, presse-papiers ; icône ; appairage par code court
 - [ ] **V3** : application Android, animations

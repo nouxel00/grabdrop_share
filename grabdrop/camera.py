@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import argparse
 import csv
+import logging
 import sys
+import threading
 import time
-from datetime import datetime
+import unicodedata
+from dataclasses import dataclass, field
 from typing import Callable
 
 import cv2
@@ -16,10 +19,24 @@ from grabdrop.detector import HandPostureDetector, HandReading
 from grabdrop.gestures import Event, GestureConfig, GestureStateMachine, Posture
 
 BANNER_MS = 1200
+CAMERA_RETRY_S = 5.0
 
 # Couleurs BGR
 GREEN, ORANGE, GREY, WHITE, BLUE = (80, 200, 80), (0, 160, 255), (160, 160, 160), (255, 255, 255), (255, 140, 40)
 POSTURE_COLOR = {Posture.OPEN: GREEN, Posture.FIST: ORANGE, Posture.NONE: GREY}
+
+log = logging.getLogger("grabdrop")
+
+
+@dataclass
+class CameraControls:
+    """Commandes de la boucle caméra, modifiables depuis un autre thread (icône)."""
+
+    preview: bool = False  # fenêtre d'aperçu affichée
+    paused: bool = False  # caméra libérée (pour Teams, Zoom...)
+    close_quits: bool = True  # fermer l'aperçu quitte (console) ou le masque seulement (icône)
+    retry_camera: bool = False  # caméra indisponible : réessayer au lieu de quitter
+    stop: threading.Event = field(default_factory=threading.Event)
 
 
 def add_camera_arguments(p: argparse.ArgumentParser) -> None:
@@ -34,49 +51,82 @@ def add_camera_arguments(p: argparse.ArgumentParser) -> None:
     p.add_argument("--log", metavar="FICHIER.csv", help="enregistrer chaque image analysée (pour le réglage)")
 
 
-def open_camera(index: int) -> cv2.VideoCapture:
+def open_camera(index: int) -> cv2.VideoCapture | None:
     # DirectShow ouvre la webcam bien plus vite que le backend par défaut sous Windows.
     backend = cv2.CAP_DSHOW if sys.platform == "win32" else cv2.CAP_ANY
     cap = cv2.VideoCapture(index, backend)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
     if not cap.isOpened():
-        sys.exit(f"Impossible d'ouvrir la caméra {index} (déjà utilisée par une autre application ?)")
+        cap.release()
+        return None
     return cap
 
 
 def run_camera_loop(
     args: argparse.Namespace,
     on_event: Callable[[Event], None] | None = None,
-    preview: bool = True,
+    controls: CameraControls | None = None,
     title: str = "GrabDrop - q pour quitter",
     status: Callable[[], str] | None = None,
+    on_camera_problem: Callable[[str], None] | None = None,
 ) -> None:
-    """Analyse la webcam jusqu'à 'q' / Échap (avec aperçu) ou Ctrl+C (sans aperçu).
+    """Analyse la webcam jusqu'à `controls.stop`, 'q' / Échap (selon les commandes) ou Ctrl+C.
 
     `on_event` est appelé dans cette boucle : il doit rendre la main rapidement.
     """
+    controls = controls or CameraControls(preview=True)
     detector = HandPostureDetector(
         min_score=args.min_score, require_palm=not args.allow_back, min_hand_size=args.min_hand_size
     )
-    machine = GestureStateMachine(GestureConfig(hold_ms=args.hold_ms))
-    cap = open_camera(args.camera)
-    log = open(args.log, "w", newline="", encoding="utf-8") if args.log else None
-    log_writer = csv.writer(log) if log else None
-    if log_writer:
-        log_writer.writerow(
+    gesture_config = GestureConfig(hold_ms=args.hold_ms)
+    machine = GestureStateMachine(gesture_config)
+    csv_file = open(args.log, "w", newline="", encoding="utf-8") if args.log else None
+    csv_writer = csv.writer(csv_file) if csv_file else None
+    if csv_writer:
+        csv_writer.writerow(
             ["t_ms", "categorie", "score", "main", "paume", "doigts", "taille", "posture", "stable", "evenement"]
         )
 
+    cap: cv2.VideoCapture | None = None
+    camera_problem_reported = False
+    window_shown = False
     last_event: tuple[Event, int] | None = None
     fps, last_t = 0.0, time.monotonic()
 
     try:
-        while True:
+        while not controls.stop.is_set():
+            if controls.paused:
+                if cap is not None:
+                    cap.release()
+                    cap = None
+                    machine = GestureStateMachine(gesture_config)  # on repart de zéro à la reprise
+                window_shown = _hide_window(title, window_shown)
+                controls.stop.wait(0.2)
+                continue
+
+            if cap is None:
+                cap = open_camera(args.camera)
+                if cap is None:
+                    message = f"Caméra {args.camera} indisponible (utilisée par une autre application ?)"
+                    if not controls.retry_camera:
+                        sys.exit(message)
+                    if not camera_problem_reported and on_camera_problem:
+                        on_camera_problem(message + ". Nouvel essai toutes les 5 s.")
+                    camera_problem_reported = True
+                    controls.stop.wait(CAMERA_RETRY_S)
+                    continue
+                if camera_problem_reported:
+                    log.info("Caméra de nouveau disponible.")
+                camera_problem_reported = False
+
             ok, frame = cap.read()
             if not ok:
-                print("Lecture caméra impossible, arrêt.")
-                break
+                log.warning("Lecture caméra impossible, nouvel essai.")
+                cap.release()
+                cap = None
+                controls.stop.wait(1.0)
+                continue
             frame = cv2.flip(frame, 1)  # effet miroir, plus naturel
             now_ms = int(time.monotonic() * 1000)
 
@@ -84,18 +134,19 @@ def run_camera_loop(
             event = machine.update(reading.posture if reading else Posture.NONE, now_ms)
             if event:
                 last_event = (event, now_ms)
-                print(f"[{datetime.now():%H:%M:%S}] {event.value.upper()}")
+                log.info(event.value.upper())
                 if on_event:
                     on_event(event)
-            if log_writer:
+            if csv_writer:
                 r = reading
-                log_writer.writerow([
+                csv_writer.writerow([
                     now_ms, r.category if r else "", f"{r.score:.2f}" if r else "", r.handedness if r else "",
                     int(r.palm_facing) if r else "", r.extended if r else "", f"{r.size:.3f}" if r else "",
                     r.posture.value if r else "none", machine.stable_posture.value, event.value if event else "",
                 ])
 
-            if not preview:
+            if not controls.preview:
+                window_shown = _hide_window(title, window_shown)
                 continue
 
             t = time.monotonic()
@@ -110,18 +161,29 @@ def run_camera_loop(
                 _draw_banner(frame, last_event[0])
 
             cv2.imshow(title, frame)
+            window_shown = True
             key = cv2.waitKey(1) & 0xFF
             if key in (ord("q"), 27) or cv2.getWindowProperty(title, cv2.WND_PROP_VISIBLE) < 1:
-                break
+                if controls.close_quits:
+                    break
+                controls.preview = False
     except KeyboardInterrupt:
         pass
     finally:
-        cap.release()
+        if cap is not None:
+            cap.release()
         cv2.destroyAllWindows()
         detector.close()
-        if log:
-            log.close()
-            print(f"Journal enregistré : {args.log}")
+        if csv_file:
+            csv_file.close()
+            log.info(f"Journal enregistré : {args.log}")
+
+
+def _hide_window(title: str, shown: bool) -> bool:
+    if shown:
+        cv2.destroyWindow(title)
+        cv2.waitKey(1)
+    return False
 
 
 def _draw_hand(frame, reading: HandReading) -> None:
@@ -148,6 +210,8 @@ def _draw_hud(frame, reading: HandReading | None, stable: Posture, fps: float) -
 
 
 def _draw_status(frame, text: str) -> None:
+    # Les polices d'OpenCV ne connaissent que l'ASCII : « é » deviendrait « ? ».
+    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
     h, w = frame.shape[:2]
     cv2.rectangle(frame, (0, h - 30), (w, h), (30, 30, 30), -1)
     cv2.putText(frame, text, (10, h - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, WHITE, 1)

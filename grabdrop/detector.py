@@ -10,6 +10,7 @@ import mediapipe as mp
 import numpy as np
 from mediapipe.tasks.python import BaseOptions, vision
 
+from grabdrop.config import config_path
 from grabdrop.gestures import Posture
 from grabdrop.hand_geometry import (
     combine_postures,
@@ -23,7 +24,8 @@ MODEL_URL = (
     "https://storage.googleapis.com/mediapipe-models/gesture_recognizer/"
     "gesture_recognizer/float16/latest/gesture_recognizer.task"
 )
-MODEL_PATH = Path(__file__).resolve().parent.parent / "models" / "gesture_recognizer.task"
+# Hors du dépôt : GrabDrop peut être installé ailleurs (pip install -e . ou non).
+MODEL_PATH = config_path().parent / "models" / "gesture_recognizer.task"
 
 # Catégories du modèle MediaPipe -> nos postures.
 _CATEGORY_TO_POSTURE = {

@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "grabdrop"
+version = "0.2.0"
+description = "Transférer des données entre appareils d'un geste de la main (grab & drop)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "mediapipe>=0.10.14",
+    "opencv-python>=4.9",
+    "zeroconf>=0.130",
+    "cryptography>=42",
+    "mss>=10.2",
+    "spake2>=0.9",
+    "pillow>=10",
+    "pystray>=0.19",
+    "pywin32>=306; sys_platform == 'win32'",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+grabdrop = "grabdrop.agent:main"
+
+[project.gui-scripts]
+grabdropw = "grabdrop.agent:main"
+
+[tool.setuptools]
+packages = ["grabdrop"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -8,7 +8,7 @@ from datetime import datetime
 import mss
 import mss.tools
 
-from grabdrop.items import Item
+from grabdrop.items import SCREENSHOT, Item
 
 
 def capture_screen() -> Item:
@@ -19,7 +19,7 @@ def capture_screen() -> Item:
         monitor = _monitor_under_cursor(sct.monitors)
         shot = sct.grab(monitor)
         png = mss.tools.to_png(shot.rgb, shot.size)
-    return Item(kind="screenshot", name=f"capture_{datetime.now():%Y%m%d_%H%M%S}.png", mime="image/png", data=png)
+    return Item(kind=SCREENSHOT, name=f"capture_{datetime.now():%Y%m%d_%H%M%S}.png", mime="image/png", data=png)
 
 
 def _monitor_under_cursor(monitors: list[dict]) -> dict:

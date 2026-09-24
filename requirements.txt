@@ -1,5 +1,0 @@
-mediapipe>=0.10.14
-opencv-python>=4.9
-zeroconf>=0.130
-cryptography>=42
-mss>=10.2
