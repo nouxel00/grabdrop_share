@@ -66,6 +66,7 @@ class Tray:
         return pystray.Menu(
             item(lambda _: f"GrabDrop sur {a.config.device_name}", None, enabled=False),
             item(lambda _: a.peers_text(), None, enabled=False),
+            item(lambda _: a.ble_text(), None, enabled=False),
             item(lambda _: a.held_text(), None, enabled=False),
             pystray.Menu.SEPARATOR,
             item("Mettre la caméra en pause", lambda: a.toggle_pause(), checked=lambda _: a.controls.paused),

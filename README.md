@@ -115,6 +115,7 @@ groupe complet, utilisable avec `pair`.
 | `--images-out`, `--files-out` | dossiers de réception |
 | `--no-open` | ne rien ouvrir automatiquement à la réception |
 | `--no-animations` | pas d'animation à l'écran au GRAB et au DROP |
+| `--no-ble` | ne pas utiliser le Bluetooth pour trouver les appareils |
 | `--camera 1`, `--allow-back`, `--log essai.csv` | autre webcam ; accepter le dos de la main ; journal de réglage |
 
 Démo des gestes seuls, sans réseau : `python -m grabdrop.demo`.
@@ -160,10 +161,31 @@ partagé reste en main 60 s, même si l'app passe en arrière-plan (notification
 À la réception : fichiers dans `Téléchargements/GrabDrop`, captures et images
 dans `Images/GrabDrop`, texte dans le presse-papiers (un lien s'ouvre).
 
+## Bluetooth : trouver les appareils proches
+
+Le Bluetooth basse consommation (BLE) sert à **trouver** les appareils du groupe
+et à estimer leur **proximité** ; les données passent toujours par le Wi-Fi,
+bien plus rapide (même principe que Huawei Share).
+
+- Chaque appareil diffuse une annonce de 18 octets : son adresse et son port
+  Wi-Fi, et s'il **tient un objet**. Le téléphone affiche par exemple
+  « « Axel-Laptop » très proche · Axel-Laptop tient un objet, faites DROP ! ».
+- Les appareils se trouvent même quand le Wi-Fi bloque la découverte mDNS
+  (points d'accès publics, partage de connexion du téléphone...).
+- L'annonce est chiffrée et signée avec une clé dérivée de celle du groupe, et
+  change toutes les 10 minutes : un appareil étranger ne peut ni lire
+  l'adresse, ni suivre un appareil, ni fabriquer une fausse annonce acceptée.
+
+Il faut le Bluetooth activé (sur le PC : Paramètres → Bluetooth et appareils)
+et, sur le téléphone, l'autorisation « Appareils à proximité ». Sans Bluetooth,
+GrabDrop continue par le Wi-Fi seul ; `--no-ble` le désactive côté PC. Le menu
+de l'icône indique les appareils entendus et le plus proche.
+
 ## Fonctionnement
 
-1. Chaque PC s'annonce sur le réseau local (mDNS, `_grabdrop._tcp`) avec un
-   identifiant dérivé de la clé du groupe : il ne voit que les PC de son groupe.
+1. Chaque PC s'annonce sur le réseau local (mDNS, `_grabdrop._tcp`) et en
+   Bluetooth, avec un identifiant dérivé de la clé du groupe : il ne voit que
+   les appareils de son groupe.
 2. Au GRAB, l'objet reste sur le PC d'origine ; rien n'est envoyé.
 3. Au DROP, le PC interroge les autres, récupère l'objet le plus récent (le
    premier qui le réclame l'obtient, une seule fois). Les fichiers sont écrits
@@ -195,6 +217,7 @@ grabdrop/
   deliver.py        ce qui se passe à la réception
   items.py          objets transférables, objet « en main », noms de fichiers sûrs
   network.py        découverte mDNS, serveur et client HTTP chiffrés, transferts en flux
+  ble.py            découverte Bluetooth (annonces chiffrées, proximité)
   pairing.py        appairage par code à 6 chiffres (SPAKE2) et par QR code
   crypto.py         clé de groupe, chiffrement AES-256-GCM, flux chiffrés
   platform_win.py   Explorateur, presse-papiers, dossiers Windows, démarrage auto
@@ -213,6 +236,7 @@ android/            application Android (Kotlin, Jetpack Compose)
     GrabDropRuntime.kt  état de l'app, envoi, réception, appairage
     GestureCamera.kt    caméra frontale + MediaPipe
     Discovery.kt        découverte mDNS (NsdManager)
+    BleDiscovery.kt     découverte Bluetooth (annonce et détection BLE)
     Storage.kt          Téléchargements, Images, presse-papiers
     ui/                 écran principal et animations
 ```

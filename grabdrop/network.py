@@ -29,6 +29,7 @@ from typing import Callable
 
 from zeroconf import IPVersion, ServiceBrowser, ServiceInfo, ServiceStateChange, Zeroconf
 
+from grabdrop.ble import BleDiscovery
 from grabdrop.config import Config
 from grabdrop.crypto import CHUNK_BYTES, NONCE_BYTES, Channel, CryptoError, StreamOpener, StreamSealer
 from grabdrop.items import FileEntry, HeldItem, Item, describe, safe_relative_path, unique_path
@@ -99,6 +100,9 @@ class Node:
         self._discovery = Discovery(config, channel.group_id, on_peer_found) if discovery else None
         self._server: ThreadingHTTPServer | None = None
         self.pairing: PairingHost | None = None  # fenêtre d'appairage en cours (voir pairing.py)
+        self.ble: BleDiscovery | None = None  # découverte Bluetooth, facultative (voir ble.py)
+        # Noms des appareils du groupe, par identifiant court (les annonces Bluetooth n'ont pas le nom).
+        self.names: dict[str, str] = {}
 
     @property
     def port(self) -> int:
@@ -127,6 +131,8 @@ class Node:
             self._discovery.stop()
             self._discovery = Discovery(self.config, channel.group_id, on_peer_found)
             self._discovery.start(self.port)
+        if self.ble:
+            self.ble.set_key(channel.ble_key)
 
     def set_fallback_peers(self, addresses: list[tuple[str, int]]) -> None:
         self._fallback_peers = [Peer("", f"{h}:{p}", h, p, fallback=True) for h, p in addresses]
@@ -135,7 +141,12 @@ class Node:
         found = self._discovery.peers() if self._discovery else []
         result = list(found)
         known = {(p.host, p.port) for p in found}
-        for p in self._static_peers + self._fallback_peers:  # adresses manuelles, puis de secours
+        nearby = [
+            Peer("", f"appareil proche ({b.announcement.host})", b.announcement.host, b.announcement.port)
+            for b in (self.ble.peers() if self.ble else [])
+        ]
+        # mDNS, puis Bluetooth, puis adresses manuelles, puis de secours
+        for p in nearby + self._static_peers + self._fallback_peers:
             if (p.host, p.port) not in known:
                 known.add((p.host, p.port))
                 result.append(p)
@@ -177,6 +188,7 @@ class Node:
         if body is None:
             return None
         reply = json.loads(body)
+        self.names[str(reply["device_id"])[:8]] = str(reply["device_name"])
         item = reply.get("item")
         if not item:
             return None
@@ -184,6 +196,11 @@ class Node:
             peer, reply["device_id"], reply["device_name"], item["id"], item["kind"], item["name"],
             item["size"], item["count"], item["age_s"],
         )
+
+    def identify(self, peer: Peer) -> str | None:
+        """Demande son nom à un appareil (entendu en Bluetooth, par exemple)."""
+        self._ask_offer(peer)
+        return self.names.get(peer.device_id[:8]) if peer.device_id else None
 
     def _request(self, peer: Peer, path: str, payload: dict) -> bytes | None:
         """Petite requête chiffrée ; renvoie le corps déchiffré de la réponse, ou None."""

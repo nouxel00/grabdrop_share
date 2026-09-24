@@ -82,6 +82,8 @@ class Node(
     private val onItemSent: (Item) -> Unit = {},
 ) {
     @Volatile var peersProvider: () -> List<Peer> = { emptyList() }
+    /** Noms des appareils du groupe, par identifiant court (les annonces Bluetooth n'ont pas le nom). */
+    val names = java.util.concurrent.ConcurrentHashMap<String, String>()
     private var server: ServerSocket? = null
     private val pool = Executors.newCachedThreadPool { r -> Thread(r, "grabdrop-http").apply { isDaemon = true } }
 
@@ -143,9 +145,15 @@ class Node(
         }
     }
 
+    /** Demande son nom à un appareil (entendu en Bluetooth, par exemple). */
+    fun identify(peer: Peer) {
+        runCatching { askOffer(peer) }
+    }
+
     private fun askOffer(peer: Peer): Offer? {
         val body = request(peer, "/v1/offer", buildJsonObject { }) ?: return null
         val reply = Json.parseToJsonElement(body.decodeToString()).jsonObject
+        names[reply.str("device_id").take(8)] = reply.str("device_name")
         val item = reply["item"]?.takeIf { it !is JsonNull }?.jsonObject ?: return null
         return Offer(
             peer, reply.str("device_id"), reply.str("device_name"), item.str("id"), item.str("kind"), item.str("name"),

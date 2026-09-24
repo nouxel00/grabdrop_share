@@ -168,3 +168,10 @@ def test_fallback_peer_is_used_and_not_duplicated(make_node):
     b.set_fallback_peers([("127.0.0.1", a.port), ("127.0.0.1", a.port)])
     assert [p.fallback for p in b.peers()] == [True]
     assert [o.device_name for o in b.find_offers()] == ["PC-A"]
+
+
+def test_identify_learns_the_name_of_a_device_heard_over_bluetooth(make_node):
+    a = make_node("PC-A")
+    b = make_node("PC-B")
+    assert b.identify(Peer(a.config.device_id, "?", "127.0.0.1", a.port)) == "PC-A"  # même sans objet en main
+    assert b.names[a.config.device_id[:8]] == "PC-A"

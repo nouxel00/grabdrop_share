@@ -65,6 +65,8 @@ class Channel:
         # Identifiant public du groupe, annoncé sur le réseau : permet d'ignorer
         # les appareils d'autres groupes sans rien révéler du secret.
         self.group_id = _derive(secret, b"grabdrop v1 group", 6).hex()
+        # Clé des annonces Bluetooth (voir ble.py).
+        self.ble_key = _derive(secret, b"grabdrop v1 ble", 32)
 
     def seal(self, plaintext: bytes, context: bytes) -> bytes:
         """Chiffre `plaintext`. `context` (non transmis) doit être identique à l'ouverture."""

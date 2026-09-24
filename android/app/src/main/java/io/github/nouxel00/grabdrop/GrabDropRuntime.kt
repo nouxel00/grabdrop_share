@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.util.Log
+import io.github.nouxel00.grabdrop.core.Ble
 import io.github.nouxel00.grabdrop.core.Channel
 import io.github.nouxel00.grabdrop.core.DEFAULT_PORT
 import io.github.nouxel00.grabdrop.core.FileEntry
@@ -54,9 +55,16 @@ class GrabDropRuntime(private val app: Context) {
     val received = MutableStateFlow<List<Received>>(emptyList())
     val messages = MutableSharedFlow<String>(extraBufferCapacity = 8)
     val animations = MutableSharedFlow<Animation>(extraBufferCapacity = 4)
+    /** Appareils du groupe entendus en Bluetooth, du plus proche au plus lointain. */
+    val nearby = MutableStateFlow<List<BlePeer>>(emptyList())
+    val bleStatus = MutableStateFlow("arrêté")
+    /** Noms connus des appareils (identifiant court -> nom), pour l'affichage. */
+    val deviceNames = MutableStateFlow<Map<String, String>>(emptyMap())
+    private val identifyAttempts = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     private var node: Node? = null
     private var discovery: Discovery? = null
+    private var ble: BleDiscovery? = null
     @Volatile private var visible = false
     private val outgoing get() = File(app.cacheDir, "outgoing")
 
@@ -81,36 +89,71 @@ class GrabDropRuntime(private val app: Context) {
         n.start()
         val d = Discovery(app, config.deviceId, config.deviceName, channel.groupId) { peers.value = it }
         d.start(n.port)
-        n.peersProvider = { d.peers() + knownPcsNotDiscovered(d.peers()) }
+        n.peersProvider = { allPeers(d) }
         node = n
         discovery = d
+        startBle()
     }
 
-    /** PC appairés dont l'adresse est connue (QR), en secours de la découverte mDNS. */
-    private fun knownPcsNotDiscovered(discovered: List<Peer>): List<Peer> {
-        val seen = discovered.map { it.host }.toSet()
-        return config.knownPcs.mapNotNull { entry ->
-            val host = entry.substringBeforeLast(':')
-            val port = entry.substringAfterLast(':').toIntOrNull() ?: return@mapNotNull null
-            if (host in seen) null else Peer("", "PC ($host)", host, port)
+    /** Autorisations Bluetooth accordées après coup : la découverte BLE démarre. */
+    @Synchronized
+    fun startBle() {
+        val n = node ?: return
+        if (ble != null || !hasBlePermissions(app)) {
+            if (!hasBlePermissions(app)) bleStatus.value = "autorisation manquante"
+            return
         }
+        val secret = parseGroupCode(config.groupCode ?: return)
+        ble = BleDiscovery(app, Ble.key(secret), config.deviceId, n.port) { nearby.value = ble?.peers() ?: emptyList() }
+            .also { it.start(); bleStatus.value = it.status }
+    }
+
+    /** Appareils entendus en Bluetooth dont on ignore le nom : on le leur demande (Wi-Fi). */
+    private fun identifyNearby(heard: List<BlePeer>) {
+        val n = node ?: return
+        val now = System.currentTimeMillis()
+        for (b in heard) {
+            val tag = b.announcement.tagHex
+            if (n.names.containsKey(tag) || now - (identifyAttempts[tag] ?: 0L) < 30_000) continue
+            identifyAttempts[tag] = now
+            scope.launch {
+                n.identify(Peer("", b.announcement.host, b.announcement.host, b.announcement.port))
+                deviceNames.value = n.names.toMap()
+            }
+        }
+    }
+
+    /** mDNS, puis Bluetooth, puis adresses retenues à l'appairage (sans doublon). */
+    private fun allPeers(d: Discovery): List<Peer> {
+        val result = d.peers().toMutableList()
+        val seen = result.map { it.host }.toMutableSet()
+        val known = config.knownPcs.mapNotNull { entry ->
+            val port = entry.substringAfterLast(':').toIntOrNull() ?: return@mapNotNull null
+            entry.substringBeforeLast(':').let { host -> Peer("", "PC ($host)", host, port) }
+        }
+        for (p in (ble?.asNetworkPeers() ?: emptyList()) + known) if (seen.add(p.host)) result += p
+        return result
     }
 
     @Synchronized
     fun maybeStop() {
         if (visible || held.peek() != null) return
-        discovery?.stop()
-        node?.stop()
-        node = null
-        discovery = null
-        peers.value = emptyList()
+        stopNetwork()
     }
 
     @Synchronized
     private fun restart() {
-        discovery?.stop(); node?.stop(); node = null; discovery = null
-        peers.value = emptyList()
+        stopNetwork()
         ensureRunning()
+    }
+
+    @Synchronized
+    private fun stopNetwork() {
+        ble?.stop(); discovery?.stop(); node?.stop()
+        ble = null; node = null; discovery = null
+        peers.value = emptyList()
+        nearby.value = emptyList()
+        bleStatus.value = "arrêté"
     }
 
     /** Toutes les 0,5 s : compte à rebours de l'objet en main, arrêt du réseau quand plus rien n'est à faire. */
@@ -120,6 +163,11 @@ class GrabDropRuntime(private val app: Context) {
             val current = held.peek()
             heldView.value = current?.let { (item, ageMs) ->
                 HeldView(item.describe(), ((HOLD_MS - ageMs) / 1000).toInt().coerceAtLeast(0), (HOLD_MS / 1000).toInt())
+            }
+            ble?.let {
+                it.setHolding(current != null)  // l'annonce Bluetooth dit si le téléphone tient un objet
+                nearby.value = it.peers()
+                identifyNearby(it.peers())
             }
             if (wasHolding && current == null) {
                 outgoing.deleteRecursively()
@@ -262,8 +310,7 @@ class GrabDropRuntime(private val app: Context) {
         config.knownPcs = emptySet()
         paired.value = false
         held.clear()
-        synchronized(this) { discovery?.stop(); node?.stop(); node = null; discovery = null }
-        peers.value = emptyList()
+        stopNetwork()
     }
 
     fun cancelHeld() {

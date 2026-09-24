@@ -18,6 +18,9 @@ dependencies = [
     "pillow>=10",
     "pystray>=0.19",
     "qrcode>=7.4",
+    "bleak>=1.0",
+    "winrt-Windows.Devices.Bluetooth.Advertisement>=3; sys_platform == 'win32'",
+    "winrt-Windows.Storage.Streams>=3; sys_platform == 'win32'",
     "pywin32>=306; sys_platform == 'win32'",
 ]
 

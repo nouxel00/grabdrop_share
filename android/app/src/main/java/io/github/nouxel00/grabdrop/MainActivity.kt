@@ -17,6 +17,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -62,10 +63,21 @@ class MainActivity : ComponentActivity() {
                     },
                     onPickFiles = { pickFiles.launch(arrayOf("*/*")) },
                 )
-                LaunchedEffect(Unit) {  // gestes activés par défaut : demander la caméra au premier lancement appairé
-                    if (runtime.paired.value && runtime.config.gesturesEnabled && !cameraGranted) {
-                        cameraPermission.launch(Manifest.permission.CAMERA)
-                    }
+                // Une seule demande groupée (deux demandes simultanées s'annuleraient) :
+                // caméra pour les gestes, Bluetooth pour trouver les appareils proches.
+                val startupPermissions = rememberLauncherForActivityResult(
+                    ActivityResultContracts.RequestMultiplePermissions()
+                ) { results ->
+                    cameraGranted = granted(Manifest.permission.CAMERA)
+                    if (blePermissions().all { results[it] == true || granted(it) }) runtime.startBle()
+                }
+                val paired by runtime.paired.collectAsState()
+                LaunchedEffect(paired) {
+                    if (!paired) return@LaunchedEffect
+                    val missing = (blePermissions().toList() +
+                        listOfNotNull(Manifest.permission.CAMERA.takeIf { runtime.config.gesturesEnabled }))
+                        .filterNot(::granted)
+                    if (missing.isNotEmpty()) startupPermissions.launch(missing.toTypedArray())
                 }
             }
         }

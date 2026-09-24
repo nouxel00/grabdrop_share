@@ -17,6 +17,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -58,7 +59,10 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import io.github.nouxel00.grabdrop.BlePeer
 import io.github.nouxel00.grabdrop.GrabDropRuntime
+import io.github.nouxel00.grabdrop.core.Ble
+import io.github.nouxel00.grabdrop.core.Peer
 import io.github.nouxel00.grabdrop.HandReading
 import io.github.nouxel00.grabdrop.HeldView
 import io.github.nouxel00.grabdrop.Received
@@ -84,6 +88,9 @@ fun HomeScreen(
     val held by runtime.heldView.collectAsState()
     val busy by runtime.busy.collectAsState()
     val received by runtime.received.collectAsState()
+    val nearby by runtime.nearby.collectAsState()
+    val bleStatus by runtime.bleStatus.collectAsState()
+    val deviceNames by runtime.deviceNames.collectAsState()
     val snackbar = remember { SnackbarHostState() }
     var playing by remember { mutableStateOf<PlayingAnimation?>(null) }
 
@@ -96,7 +103,9 @@ fun HomeScreen(
                 Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                Header(runtime.config.deviceName, paired, peers.size)
+                val pcCount = (peers.map { it.host } + nearby.map { it.announcement.host }).distinct().size
+                Header(runtime.config.deviceName, paired, pcCount)
+                if (paired) BluetoothLine(bleStatus, nearby, peers, deviceNames)
                 if (!paired) {
                     PairCard(onScanQr)
                 } else {
@@ -104,10 +113,18 @@ fun HomeScreen(
                     AnimatedVisibility(held != null, enter = scaleIn() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
                         held?.let { HeldCard(it, runtime::cancelHeld) }
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        OutlinedButton(onClick = onPickPhotos, modifier = Modifier.weight(1f)) { Text("Photos") }
-                        OutlinedButton(onClick = onPickFiles, modifier = Modifier.weight(1f)) { Text("Fichiers") }
-                        Button(onClick = { runtime.receive() }, modifier = Modifier.weight(1.2f)) { Text("Recevoir") }
+                    // Texte sur une seule ligne, même avec une grande taille de police système.
+                    val compact = PaddingValues(horizontal = 6.dp, vertical = 8.dp)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = onPickPhotos, modifier = Modifier.weight(1f), contentPadding = compact) {
+                            Text("Photos", maxLines = 1, softWrap = false)
+                        }
+                        OutlinedButton(onClick = onPickFiles, modifier = Modifier.weight(1f), contentPadding = compact) {
+                            Text("Fichiers", maxLines = 1, softWrap = false)
+                        }
+                        Button(onClick = { runtime.receive() }, modifier = Modifier.weight(1.1f), contentPadding = compact) {
+                            Text("Recevoir", maxLines = 1, softWrap = false)
+                        }
                     }
                     Text(
                         // Pas de flèche « → » : certaines polices de téléphone ne l'ont pas.
@@ -141,6 +158,33 @@ private fun Header(deviceName: String, paired: Boolean, peerCount: Int) {
         }
         Text("$deviceName · $status", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
+}
+
+/** Appareils entendus en Bluetooth : le plus proche, et s'il tient un objet à déposer ici. */
+@Composable
+private fun BluetoothLine(status: String, nearby: List<BlePeer>, peers: List<Peer>, known: Map<String, String>) {
+    val names = known + peers.filter { it.deviceId.length >= 8 }.associate { it.deviceId.take(8) to it.name }
+    val text = when {
+        status == "autorisation manquante" -> "Bluetooth : autorisation « Appareils à proximité » manquante"
+        status == "Bluetooth désactivé" -> "Bluetooth désactivé : les PC sont cherchés par le Wi-Fi seulement"
+        status != "actif" -> "Bluetooth : $status"
+        nearby.isEmpty() -> "Bluetooth : aucun PC à proximité"
+        else -> {
+            val first = nearby.first()
+            val name = names[first.announcement.tagHex] ?: "PC (${first.announcement.host})"
+            val holder = nearby.firstOrNull { it.announcement.holding }
+            val holderName = holder?.let { names[it.announcement.tagHex] ?: "un PC" }
+            "Bluetooth : « $name » ${Ble.proximity(first.rssi)}" +
+                (holderName?.let { " · $it tient un objet, faites DROP !" } ?: "")
+        }
+    }
+    val highlight = nearby.any { it.announcement.holding }
+    Text(
+        text,
+        style = MaterialTheme.typography.bodyMedium,
+        color = if (highlight) Orange else MaterialTheme.colorScheme.onSurfaceVariant,
+        fontWeight = if (highlight) FontWeight.SemiBold else FontWeight.Normal,
+    )
 }
 
 @Composable

@@ -32,7 +32,7 @@ from grabdrop.crypto import Channel, format_code, new_pairing_code, parse_code
 from grabdrop.deliver import Destinations, deliver
 from grabdrop.gestures import Event
 from grabdrop.items import HeldItem, human_size
-from grabdrop.network import DEFAULT_PORT, Node, local_ipv4_addresses
+from grabdrop.network import DEFAULT_PORT, Node, Peer, local_ip, local_ipv4_addresses
 from grabdrop.pairing import (
     PAIRING_WINDOW_S,
     PairingAdvertiser,
@@ -86,6 +86,7 @@ def add_run_arguments(p: argparse.ArgumentParser) -> None:
         help="adresse d'un autre PC, si la découverte automatique ne le trouve pas (répétable)",
     )
     p.add_argument("--no-discovery", action="store_true", help="désactiver la découverte automatique (mDNS)")
+    p.add_argument("--no-ble", action="store_true", help="désactiver la découverte par Bluetooth")
     p.add_argument("--hold-seconds", type=float, default=20.0, help="durée pendant laquelle un objet attrapé reste disponible")
     p.add_argument("--recent-copy-seconds", type=float, default=RECENT_COPY_S,
                    help="une copie (Ctrl+C) plus ancienne n'est pas attrapée (défaut : 30 s)")
@@ -203,6 +204,7 @@ class Agent:
         self._worker = ThreadPoolExecutor(max_workers=1)  # une action à la fois, hors de la boucle caméra
         self._pairing: tuple[PairingHost, PairingAdvertiser] | None = None
         self._config_mtime = _mtime(config_path())
+        self._identify_attempts: dict[str, float] = {}
 
     # --- cycle de vie
 
@@ -223,6 +225,11 @@ class Agent:
             self.node.start()
         except OSError:
             fatal(f"Impossible d'écouter sur le port {self.args.port} : GrabDrop tourne sans doute déjà.")
+        if not self.args.no_ble:
+            from grabdrop.ble import BleDiscovery
+
+            self.node.ble = BleDiscovery(self.node.channel.ble_key, self.config.device_id, self.node.port, local_ip)
+            self.node.ble.start()
 
         if self.watcher:
             self.watcher.start()
@@ -258,6 +265,8 @@ class Agent:
             self._end_pairing()
             if self.watcher:
                 self.watcher.stop()
+            if self.node.ble:
+                self.node.ble.stop()
             self.node.stop()
             if self.tray:
                 self.tray.stop()
@@ -270,16 +279,30 @@ class Agent:
         self.controls.stop.set()
 
     def _housekeeping(self) -> None:
-        """Toutes les secondes : icône à jour, fin d'appairage, changement de groupe fait par `pair`."""
+        """Toutes les secondes : icône et annonce Bluetooth à jour, fin d'appairage, changement de groupe."""
         while not self.controls.stop.wait(1.0):
             try:
                 if self._pairing and not self._pairing[0].active():
                     self._end_pairing()
                 self._reload_config_if_changed()
+                if self.node.ble:
+                    self.node.ble.set_holding(self.held.peek() is not None)
+                    self._identify_nearby()
                 if self.tray:
                     self.tray.refresh()
             except Exception:
                 log.exception("Erreur de maintenance")
+
+    def _identify_nearby(self) -> None:
+        """Appareils entendus en Bluetooth dont on ignore le nom : on le leur demande (Wi-Fi)."""
+        now = time.monotonic()
+        for b in self.node.ble.peers():
+            tag = b.announcement.device_tag.hex()
+            if tag in self.node.names or now - self._identify_attempts.get(tag, -1e9) < 30:
+                continue
+            self._identify_attempts[tag] = now
+            peer = Peer("", b.announcement.host, b.announcement.host, b.announcement.port)
+            threading.Thread(target=self.node.identify, args=(peer,), daemon=True).start()
 
     def _reload_config_if_changed(self) -> None:
         mtime = _mtime(config_path())
@@ -369,6 +392,22 @@ class Agent:
     def peers_text(self) -> str:
         n = len(self.node.peers()) if self.node else 0
         return "Aucun autre appareil trouvé" if n == 0 else f"{n} appareil(s) connecté(s)"
+
+    def ble_text(self) -> str:
+        from grabdrop.ble import proximity
+
+        ble = self.node.ble if self.node else None
+        if ble is None:
+            return "Bluetooth : désactivé (--no-ble)"
+        if ble.status != "actif":
+            return "Bluetooth : indisponible (désactivé dans Windows ?)"
+        nearby = ble.peers()
+        if not nearby:
+            return "Bluetooth : aucun appareil à proximité"
+        names = {**self.node.names, **{p.device_id[:8]: p.name for p in self.node.peers() if p.device_id}}
+        first = nearby[0].announcement
+        name = names.get(first.device_tag.hex(), "téléphone" if first.is_phone else first.host)
+        return f"Bluetooth : {len(nearby)} à proximité, dont « {name} » ({proximity(nearby[0].rssi)})"
 
     def held_text(self) -> str:
         held = self.held.peek()
