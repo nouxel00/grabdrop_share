@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="grabdrop_blue">#2563EB</color>
+    <color name="app_background">#F5F7FB</color>
 </resources>

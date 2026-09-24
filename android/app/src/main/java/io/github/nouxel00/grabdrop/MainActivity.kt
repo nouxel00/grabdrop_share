@@ -12,21 +12,17 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.graphics.Color
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import io.github.nouxel00.grabdrop.ui.HomeScreen
+import io.github.nouxel00.grabdrop.ui.theme.GrabDropTheme
 
 class MainActivity : ComponentActivity() {
     private val runtime get() = (application as GrabDropApp).runtime
@@ -40,9 +36,7 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            val blue = Color(0xFF2563EB)
-            val scheme = if (isSystemInDarkTheme()) darkColorScheme(primary = Color(0xFF7AA2F7)) else lightColorScheme(primary = blue)
-            MaterialTheme(colorScheme = scheme) {
+            GrabDropTheme {
                 var cameraGranted by remember { mutableStateOf(granted(Manifest.permission.CAMERA)) }
                 val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
                     cameraGranted = it

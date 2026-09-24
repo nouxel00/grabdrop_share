@@ -31,7 +31,14 @@ import java.io.File
 data class HeldView(val description: String, val remainingS: Int, val totalS: Int)
 
 /** Objet reçu, pour la liste « Reçus ». */
-data class Received(val description: String, val from: String, val uris: List<Pair<Uri, String>>, val text: String? = null)
+data class Received(
+    val kind: String,
+    val description: String,
+    val from: String,
+    val uris: List<Pair<Uri, String>>,
+    val text: String? = null,
+    val timeMs: Long = System.currentTimeMillis(),
+)
 
 sealed interface Animation {
     data class Grabbed(val description: String) : Animation
@@ -162,7 +169,7 @@ class GrabDropRuntime(private val app: Context) {
         while (true) {
             val current = held.peek()
             heldView.value = current?.let { (item, ageMs) ->
-                HeldView(item.describe(), ((HOLD_MS - ageMs) / 1000).toInt().coerceAtLeast(0), (HOLD_MS / 1000).toInt())
+                HeldView(displayName(item), ((HOLD_MS - ageMs) / 1000).toInt().coerceAtLeast(0), (HOLD_MS / 1000).toInt())
             }
             ble?.let {
                 it.setHolding(current != null)  // l'annonce Bluetooth dit si le téléphone tient un objet
@@ -180,11 +187,17 @@ class GrabDropRuntime(private val app: Context) {
 
     // --- mettre en main (envoyer) ------------------------------------------------
 
+    /** Pour l'affichage : le début d'un texte plutôt que « texte copié ». */
+    private fun displayName(item: Item): String {
+        if (item.kind != Kind.TEXT) return item.describe()
+        val flat = item.data.decodeToString().split(Regex("\\s+")).joinToString(" ").trim()
+        return "« " + (if (flat.length <= 60) flat else flat.take(59).trimEnd() + "…") + " »"
+    }
+
     fun putInHand(item: Item) {
         held.hold(item)
         ensureRunning()
-        animations.tryEmit(Animation.Grabbed(item.describe()))
-        messages.tryEmit("En main : ${item.describe()}. Faites DROP devant un PC.")
+        animations.tryEmit(Animation.Grabbed(displayName(item)))  // la carte « En main » prend le relais
         app.startForegroundService(Intent(app, GrabDropService::class.java))
     }
 
@@ -270,17 +283,17 @@ class GrabDropRuntime(private val app: Context) {
             val uri = saveImage(app, item.data, item.name)
             if (item.kind == Kind.IMAGE) copyImageToClipboard(app, uri)
             openUri(app, uri, "image/png")
-            Received(item.describe(), from, listOf(uri to "image/png"))
+            Received(item.kind, item.describe(), from, listOf(uri to "image/png"))
         }
         Kind.TEXT -> {
             val text = item.data.decodeToString()
             copyTextToClipboard(app, text)
             if (isSingleUrl(text)) openUrl(app, text.trim())
-            Received("texte copié dans le presse-papiers", from, emptyList(), text)
+            Received(item.kind, displayName(item), from, emptyList(), text)
         }
         else -> {
             if (sink.created.size == 1) sink.created[0].let { (uri, mime) -> openUri(app, uri, mime) }
-            Received(item.describe(), from, sink.created.toList())
+            Received(item.kind, item.describe(), from, sink.created.toList())
         }
     }
 

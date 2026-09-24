@@ -182,6 +182,9 @@ cd android
 | recevoir sur le téléphone | GRAB devant un PC, puis DROP devant le téléphone (app ouverte), ou bouton **Recevoir** |
 | attraper un texte copié | copier le texte, ouvrir GrabDrop, GRAB devant le téléphone (copie de moins d'une minute) |
 
+L'app suit le thème clair ou sombre du téléphone. Police : Plus Jakarta Sans
+(licence SIL Open Font License, voir `android/FONT_LICENSE_OFL.txt`).
+
 La caméra ne surveille les gestes que lorsque l'app est à l'écran. Un objet
 partagé reste en main 60 s, même si l'app passe en arrière-plan (notification).
 À la réception : fichiers dans `Téléchargements/GrabDrop`, captures et images
@@ -271,6 +274,7 @@ android/            application Android (Kotlin, Jetpack Compose)
     BleDiscovery.kt     découverte Bluetooth (annonce et détection BLE)
     Storage.kt          Téléchargements, Images, presse-papiers
     ui/                 écran principal et animations
+    ui/theme/           police, couleurs claires et sombres, icônes dessinées pour l'app
 ```
 
 ## Feuille de route

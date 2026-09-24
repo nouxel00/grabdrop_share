@@ -1,9 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Android 12+ : écran de démarrage : pastille bleue avec la main blanche, sur le fond de l'app. -->
     <style name="Theme.GrabDrop" parent="android:Theme.Material.Light.NoActionBar">
-        <!-- Même fond que l'écran de l'app : pas de flash au démarrage. -->
         <item name="android:windowBackground">@color/app_background</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowSplashScreenBackground">@color/app_background</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@color/grabdrop_blue</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
     </style>
 </resources>

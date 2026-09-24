@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.GrabDrop" parent="android:Theme.Material.Light.NoActionBar">
-        <!-- Même fond que l'écran de l'app : pas de flash au démarrage. -->
+    <style name="Theme.GrabDrop" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/app_background</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
