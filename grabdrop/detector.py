@@ -11,7 +11,13 @@ import numpy as np
 from mediapipe.tasks.python import BaseOptions, vision
 
 from grabdrop.gestures import Posture
-from grabdrop.hand_geometry import combine_postures, extended_fingers, palm_facing_camera, posture_from_landmarks
+from grabdrop.hand_geometry import (
+    combine_postures,
+    extended_fingers,
+    hand_scale,
+    palm_facing_camera,
+    posture_from_landmarks,
+)
 
 MODEL_URL = (
     "https://storage.googleapis.com/mediapipe-models/gesture_recognizer/"
@@ -45,14 +51,23 @@ class HandReading:
     handedness: str  # "Right" / "Left"
     palm_facing: bool
     extended: int  # doigts tendus (hors pouce), 0 à 4
+    size: float  # taille apparente de la paume (voir hand_scale)
     landmarks: list[tuple[float, float]]  # 21 points normalisés (0..1)
 
 
 class HandPostureDetector:
-    def __init__(self, min_score: float = 0.6, require_palm: bool = True, model_path: Path | None = None) -> None:
+    def __init__(
+        self,
+        min_score: float = 0.6,
+        require_palm: bool = True,
+        min_hand_size: float = 0.0,
+        model_path: Path | None = None,
+    ) -> None:
         self.min_score = min_score
         # Main ouverte acceptée seulement paume face à la caméra (comme Huawei).
         self.require_palm = require_palm
+        # Main trop petite = trop loin : sans doute un geste destiné à un autre écran.
+        self.min_hand_size = min_hand_size
         options = vision.GestureRecognizerOptions(
             base_options=BaseOptions(model_asset_path=str(model_path or ensure_model())),
             running_mode=vision.RunningMode.VIDEO,
@@ -84,7 +99,10 @@ class HandPostureDetector:
         palm = palm_facing_camera(landmarks, side)
         if posture == Posture.OPEN and self.require_palm and not palm:
             posture = Posture.NONE
-        return HandReading(posture, category, score, side, palm, extended_fingers(world), landmarks)
+        size = hand_scale(landmarks, rgb_frame.shape[1], rgb_frame.shape[0])
+        if size < self.min_hand_size:
+            posture = Posture.NONE
+        return HandReading(posture, category, score, side, palm, extended_fingers(world), size, landmarks)
 
     def close(self) -> None:
         self._recognizer.close()

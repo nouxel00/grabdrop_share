@@ -1,5 +1,13 @@
+import math
+
 from grabdrop.gestures import Posture
-from grabdrop.hand_geometry import combine_postures, extended_fingers, palm_facing_camera, posture_from_landmarks
+from grabdrop.hand_geometry import (
+    combine_postures,
+    extended_fingers,
+    hand_scale,
+    palm_facing_camera,
+    posture_from_landmarks,
+)
 
 O, F, N = Posture.OPEN, Posture.FIST, Posture.NONE
 FINGER_X = (-0.03, -0.01, 0.01, 0.03)  # index, majeur, annulaire, auriculaire
@@ -74,3 +82,12 @@ def test_palm_orientation_is_rotation_invariant():
     # Vraie main droite paume face caméra, doigts vers la gauche (rotation de 90°).
     rotated = [(y, -x, z) for x, y, z in OPEN_HAND]
     assert palm_facing_camera(rotated, REAL_RIGHT)
+
+
+def test_hand_scale_same_for_open_hand_and_fist():
+    # Coordonnées normalisées (0..1) : on réutilise les mains synthétiques, décalées dans l'image.
+    to_image = lambda pts: [(0.5 + x, 0.8 + y) for x, y, _ in pts]
+    open_size = hand_scale(to_image(OPEN_HAND), 640, 480)
+    assert open_size == hand_scale(to_image(FIST), 640, 480)
+    # Poignet (0 ; 0) -> base du majeur (-0,01 ; -0,09), en pixels 640x480, rapporté à la hauteur.
+    assert abs(open_size - math.hypot(0.01 * 640, 0.09 * 480) / 480) < 1e-9

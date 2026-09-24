@@ -11,7 +11,7 @@ from typing import Sequence
 
 from grabdrop.gestures import Posture
 
-WRIST, INDEX_MCP, PINKY_MCP = 0, 5, 17
+WRIST, INDEX_MCP, MIDDLE_MCP, PINKY_MCP = 0, 5, 9, 17
 # (PIP, bout) pour index, majeur, annulaire, auriculaire. Le pouce est ignoré.
 FINGERS = ((6, 8), (10, 12), (14, 16), (18, 20))
 
@@ -42,6 +42,16 @@ def posture_from_landmarks(points: Sequence[Point]) -> Posture:
     if extended == 0 and curled >= 3:
         return Posture.FIST
     return Posture.NONE
+
+
+def hand_scale(points_2d: Sequence[Point], width: int, height: int) -> float:
+    """Taille apparente de la paume (poignet -> base du majeur), en fraction de la hauteur d'image.
+
+    Ne dépend pas de la posture (identique main ouverte ou poing) : sert à estimer
+    la distance de la main à la caméra. Environ 0,2 à 50 cm, 0,1 à 1 m.
+    """
+    (x0, y0), (x1, y1) = points_2d[WRIST][:2], points_2d[MIDDLE_MCP][:2]
+    return math.hypot((x1 - x0) * width, (y1 - y0) * height) / height
 
 
 def combine_postures(geometric: Posture, classifier: Posture) -> Posture:
