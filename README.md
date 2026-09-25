@@ -53,7 +53,11 @@ le lancer et suivre l'assistant :
 L'assistant crée un raccourci dans le menu Démarrer (et sur le Bureau en option)
 et propose le lancement automatique à l'ouverture de session. Ensuite, plus
 aucune commande : GrabDrop démarre avec Windows, ou depuis le menu Démarrer.
-La désinstallation (Paramètres → Applications) garde l'appairage.
+
+**Mise à jour** : lancer l'installateur de la nouvelle version par-dessus
+l'ancienne. Il arrête GrabDrop s'il tourne, garde l'appairage et vos choix
+(lancement automatique, raccourci Bureau, même s'ils ont changé depuis), puis
+relance GrabDrop. La désinstallation (Paramètres → Applications) garde l'appairage.
 
 L'installateur n'est pas signé : Windows SmartScreen peut afficher « Windows a
 protégé votre ordinateur » → **Informations complémentaires** → **Exécuter quand même**.
