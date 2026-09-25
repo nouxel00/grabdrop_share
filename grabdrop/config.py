@@ -26,6 +26,8 @@ class Config:
     pairing_code: str | None = None
     # « ip:port » d'appareils appairés par QR (téléphones), en secours de la découverte mDNS
     known_peers: list[str] = field(default_factory=list)
+    # La fenêtre GrabDrop s'ouvre d'elle-même au tout premier lancement (où est l'icône, etc.).
+    welcomed: bool = False
 
 
 def load_config(path: Path | None = None) -> Config:

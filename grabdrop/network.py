@@ -103,6 +103,8 @@ class Node:
         self.ble: BleDiscovery | None = None  # découverte Bluetooth, facultative (voir ble.py)
         # Noms des appareils du groupe, par identifiant court (les annonces Bluetooth n'ont pas le nom).
         self.names: dict[str, str] = {}
+        # Une seconde copie de GrabDrop lancée sur ce PC demande à la première de se montrer.
+        self.on_show: Callable[[], None] | None = None
 
     @property
     def port(self) -> int:
@@ -303,6 +305,12 @@ class _Handler(BaseHTTPRequestHandler):
         if length > MAX_REQUEST_BYTES:
             return self._reply(413)
         body = self.rfile.read(length)
+
+        if self.path == "/v1/local/show":  # seconde copie lancée sur ce PC : accepté seulement en local
+            if self.client_address[0] in ("127.0.0.1", "::1") and self.node.on_show:
+                self.node.on_show()
+                return self._reply(200)
+            return self._reply(403)
 
         if self.path.startswith("/v1/pair/"):  # appairage : protégé par le PAKE, pas par le groupe
             pairing = self.node.pairing

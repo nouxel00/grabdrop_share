@@ -87,11 +87,19 @@ Le modèle MediaPipe (~8 Mo) est téléchargé automatiquement au premier lancem
 python -m grabdrop
 ```
 
-Une **icône** apparaît dans la barre des tâches (clic droit pour le menu) :
-bleue au repos, orange quand un objet est en main, grise caméra en pause.
+GrabDrop tourne en arrière-plan, avec une **icône** près de l'horloge : bleue au
+repos, orange quand un objet est en main, grise caméra en pause. Windows 11
+range les icônes des nouvelles applications derrière la flèche **^** : faites-la
+glisser sur la barre des tâches pour la garder visible.
 
-| Menu | Rôle |
+La **fenêtre GrabDrop** (état, appairage, aperçu caméra, fichiers reçus) s'ouvre
+au premier lancement, d'un clic sur l'icône, ou en relançant GrabDrop depuis le
+menu Démarrer alors qu'il tourne déjà. La fermer n'arrête pas GrabDrop ; pour
+l'arrêter : « Quitter GrabDrop » dans la fenêtre ou le menu de l'icône.
+
+| Menu (clic droit sur l'icône) | Rôle |
 |---|---|
+| Ouvrir GrabDrop | la fenêtre GrabDrop (aussi d'un clic gauche) |
 | Mettre la caméra en pause | libère la webcam (visio, confidentialité) |
 | Afficher l'aperçu caméra | fenêtre de réglage : main détectée, posture, taille |
 | Appairer un nouvel appareil… | affiche un code à 6 chiffres |

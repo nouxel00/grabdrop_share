@@ -64,6 +64,7 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     setup_logging()
+    platform_win.set_app_id()
     config = load_config()
     if args.command == "pair":
         cmd_pair_join(config, " ".join(args.code)) if args.code else cmd_pair_host(config)
@@ -224,7 +225,11 @@ class Agent:
         try:
             self.node.start()
         except OSError:
-            fatal(f"Impossible d'écouter sur le port {self.args.port} : GrabDrop tourne sans doute déjà.")
+            if _show_running_instance(self.args.port):  # déjà lancé : c'est sa fenêtre qui s'affiche
+                log.info("GrabDrop tourne déjà : sa fenêtre est affichée.")
+                sys.exit(0)
+            fatal(f"Impossible d'écouter sur le port {self.args.port} : il est utilisé par un autre programme.")
+        self.node.on_show = self.show_window
         if not self.args.no_ble:
             from grabdrop.ble import BleDiscovery
 
@@ -250,7 +255,12 @@ class Agent:
             self.notify("Premier lancement : appairez vos appareils via l'icône GrabDrop "
                         "(« Appairer un nouvel appareil… » sur l'un, « Rejoindre un groupe… » sur l'autre).")
         if self.tray:
-            log.info("Icône GrabDrop dans la barre des tâches (clic droit pour le menu).")
+            log.info("Icône GrabDrop dans la zone de notification (clic : fenêtre ; clic droit : menu).")
+            if not self.config.welcomed:  # tout premier lancement : montrer où est GrabDrop
+                self.show_window()
+                self.config.welcomed = True
+                save_config(self.config)
+                self._config_mtime = _mtime(config_path())
         else:
             log.info("'q' dans la fenêtre pour quitter." if self.args.preview else "Ctrl+C pour quitter.")
 
@@ -277,6 +287,19 @@ class Agent:
 
     def quit(self) -> None:
         self.controls.stop.set()
+
+    def show_window(self) -> None:
+        """Fenêtre GrabDrop : état, actions, et où trouver l'icône (souvent masquée par Windows)."""
+        if not platform_win.IS_WINDOWS:
+            return
+        from grabdrop.dialogs import show_status_window
+
+        show_status_window(self)
+
+    def camera_text(self) -> str:
+        if self.controls.paused:
+            return "en pause"
+        return "active, gestes surveillés" + (" (aperçu ouvert)" if self.controls.preview else "")
 
     def _housekeeping(self) -> None:
         """Toutes les secondes : icône et annonce Bluetooth à jour, fin d'appairage, changement de groupe."""
@@ -522,6 +545,19 @@ def _report_errors(action: Callable[[], None], notify: Callable[[str, str], None
             notify("Erreur inattendue (détails dans le journal).", "error")
 
     return run
+
+
+def _show_running_instance(port: int) -> bool:
+    """GrabDrop tourne déjà sur ce PC : lui demander d'afficher sa fenêtre (plutôt qu'une erreur)."""
+    import urllib.request
+
+    platform_win.allow_any_foreground()  # la copie déjà lancée a le droit de passer au premier plan
+    try:
+        request = urllib.request.Request(f"http://127.0.0.1:{port}/v1/local/show", data=b"", method="POST")
+        with urllib.request.urlopen(request, timeout=3) as response:
+            return response.status == 200
+    except OSError:
+        return False
 
 
 def _parse_peer(value: str) -> tuple[str, int]:

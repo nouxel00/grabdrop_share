@@ -64,6 +64,8 @@ class Tray:
         a = self.agent
         item = pystray.MenuItem
         return pystray.Menu(
+            item("Ouvrir GrabDrop", lambda: a.show_window(), default=True),  # aussi au clic gauche sur l'icône
+            pystray.Menu.SEPARATOR,
             item(lambda _: f"GrabDrop sur {a.config.device_name}", None, enabled=False),
             item(lambda _: a.peers_text(), None, enabled=False),
             item(lambda _: a.ble_text(), None, enabled=False),

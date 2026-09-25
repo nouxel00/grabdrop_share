@@ -175,3 +175,15 @@ def test_identify_learns_the_name_of_a_device_heard_over_bluetooth(make_node):
     b = make_node("PC-B")
     assert b.identify(Peer(a.config.device_id, "?", "127.0.0.1", a.port)) == "PC-A"  # même sans objet en main
     assert b.names[a.config.device_id[:8]] == "PC-A"
+
+
+def test_second_copy_asks_the_running_one_to_show_itself(make_node):
+    import urllib.request
+
+    a = make_node("PC-A")
+    shown = []
+    a.on_show = lambda: shown.append(True)
+    request = urllib.request.Request(f"http://127.0.0.1:{a.port}/v1/local/show", data=b"", method="POST")
+    with urllib.request.urlopen(request, timeout=3) as response:
+        assert response.status == 200
+    assert shown == [True]

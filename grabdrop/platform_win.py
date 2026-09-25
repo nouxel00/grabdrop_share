@@ -313,3 +313,35 @@ def restore_foreground(hwnd: int | None) -> None:
     user32 = ctypes.windll.user32
     if user32.GetForegroundWindow() != hwnd and user32.IsWindow(hwnd):
         user32.SetForegroundWindow(hwnd)
+
+
+def allow_any_foreground() -> None:
+    """Autorise un autre processus (la copie de GrabDrop déjà lancée) à passer au premier plan."""
+    if IS_WINDOWS:
+        import ctypes
+
+        ctypes.windll.user32.AllowSetForegroundWindow(-1)  # ASFW_ANY
+
+
+def show_in_taskbar(tk_widget_id: int) -> None:
+    """Donne un bouton dans la barre des tâches à une fenêtre Tk (tant qu'elle est ouverte)."""
+    if not IS_WINDOWS:
+        return
+    import ctypes
+
+    user32 = ctypes.windll.user32
+    hwnd = user32.GetParent(tk_widget_id) or tk_widget_id
+    GWL_EXSTYLE, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW = -20, 0x40000, 0x80
+    style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+    user32.SetWindowLongW(hwnd, GWL_EXSTYLE, (style | WS_EX_APPWINDOW) & ~WS_EX_TOOLWINDOW)
+
+
+def set_app_id() -> None:
+    """Identité de GrabDrop dans la barre des tâches (regroupement, icône)."""
+    if IS_WINDOWS:
+        import ctypes
+
+        try:
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("GrabDrop")
+        except Exception:
+            pass
